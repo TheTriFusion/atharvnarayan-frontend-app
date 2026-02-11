@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../contexts/AuthContext';
 
 // Auth Screens
+import Welcome from '../screens/Auth/Welcome';
 import Login from '../screens/Auth/Login';
 import OwnerRegistration from '../screens/Auth/OwnerRegistration';
 
@@ -44,9 +45,13 @@ import MilkTruckDriverTripDetails from '../screens/MilkTruck/Driver/TripDetails'
 import CattleFeedTruckOwnerDashboard from '../screens/CattleFeedTruck/Owner/Dashboard';
 import WarehouseManagement from '../screens/CattleFeedTruck/Owner/WarehouseManagement';
 import VehicleManagement from '../screens/CattleFeedTruck/Owner/VehicleManagement';
+import ManageVehicle from '../screens/CattleFeedTruck/Owner/ManageVehicle';
 import DeliveryPointManagement from '../screens/CattleFeedTruck/Owner/DeliveryPointManagement';
 import RouteManagement from '../screens/CattleFeedTruck/Owner/RouteManagement';
+import ManageRoute from '../screens/CattleFeedTruck/Owner/ManageRoute';
 import DriverManagement from '../screens/CattleFeedTruck/Owner/DriverManagement';
+import ManageDriver from '../screens/CattleFeedTruck/Owner/ManageDriver';
+import ManageTrip from '../screens/CattleFeedTruck/Owner/ManageTrip';
 import FeedProductManagement from '../screens/CattleFeedTruck/Owner/FeedProductManagement';
 import TripManagement from '../screens/CattleFeedTruck/Owner/TripManagement';
 
@@ -69,8 +74,12 @@ const AppNavigator: React.FC = () => {
 
   // Determine initial route based on user role
   const getInitialRoute = () => {
-    if (!isAuthenticated) return 'Login';
+    // If user is not logged in, show Welcome page
+    if (!isAuthenticated) {
+      return 'Welcome';
+    }
 
+    // If user is logged in, show their dashboard based on role
     switch (user?.role) {
       case 'superadmin':
         return 'SuperAdminDashboard';
@@ -87,7 +96,7 @@ const AppNavigator: React.FC = () => {
       case 'cattleFeedTruckDriver':
         return 'CattleFeedTruckDriverDashboard';
       default:
-        return 'Login';
+        return 'Welcome';
     }
   };
 
@@ -98,6 +107,7 @@ const AppNavigator: React.FC = () => {
         screenOptions={{ headerShown: false }}
       >
         {/* Auth Routes */}
+        <Stack.Screen name="Welcome" component={Welcome} />
         <Stack.Screen name="Login" component={Login} />
         <Stack.Screen name="Register" component={OwnerRegistration} />
 
@@ -139,9 +149,13 @@ const AppNavigator: React.FC = () => {
         <Stack.Screen name="CattleFeedTruckOwnerDashboard" component={CattleFeedTruckOwnerDashboard} />
         <Stack.Screen name="WarehouseManagement" component={WarehouseManagement} />
         <Stack.Screen name="VehicleManagement" component={VehicleManagement} />
+        <Stack.Screen name="ManageVehicle" component={ManageVehicle} />
         <Stack.Screen name="DeliveryPointManagement" component={DeliveryPointManagement} />
         <Stack.Screen name="RouteManagement" component={RouteManagement} />
+        <Stack.Screen name="ManageRoute" component={ManageRoute} />
         <Stack.Screen name="DriverManagement" component={DriverManagement} />
+        <Stack.Screen name="ManageDriver" component={ManageDriver} />
+        <Stack.Screen name="ManageTrip" component={ManageTrip} />
         <Stack.Screen name="FeedProductManagement" component={FeedProductManagement} />
         <Stack.Screen name="TripManagement" component={TripManagement} />
 

@@ -1,18 +1,29 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert, KeyboardAvoidingView, Platform, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, Alert, KeyboardAvoidingView, Platform, TouchableOpacity, Animated, Dimensions, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import LinearGradient from 'react-native-linear-gradient';
 import { cattleFeedTruckAPI } from '../../../utils/api';
 import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
 import Input from '../../../components/common/Input';
 import Select from '../../../components/common/Select';
-// import { ArrowLeft, Check, Truck, MapPin, Gauge } from 'lucide-react-native';
+import { colors } from '../../../theme/colors';
+import { spacing, borderRadius, shadows } from '../../../theme/spacing';
+import { typography } from '../../../theme/typography';
+import Modal from '../../../components/common/Modal';
+
+const { width } = Dimensions.get('window');
 
 const CreateTrip: React.FC = () => {
     const navigation = useNavigation<any>();
     const [step, setStep] = useState(1);
     const [vehicles, setVehicles] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
+    const [showSuccessModal, setShowSuccessModal] = useState(false);
+
+    // Animation values
+    const fadeAnim = useRef(new Animated.Value(0)).current;
+    const slideAnim = useRef(new Animated.Value(0)).current;
 
     // Data State
     const [formData, setFormData] = useState({
@@ -40,23 +51,24 @@ const CreateTrip: React.FC = () => {
 
     useEffect(() => {
         fetchVehicles();
+        Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 600,
+            useNativeDriver: true,
+        }).start();
     }, []);
 
     const fetchVehicles = async () => {
         try {
             setLoading(true);
             const response = await cattleFeedTruckAPI.getVehicles();
-            console.log('Vehicles response:', response);
             if (Array.isArray(response)) {
                 setVehicles(response);
             } else if (response && response.data && Array.isArray(response.data)) {
                 setVehicles(response.data);
-            } else {
-                setVehicles([]);
             }
         } catch (error) {
             console.error('Error fetching vehicles:', error);
-            Alert.alert('Error', 'Failed to fetch vehicles');
         } finally {
             setLoading(false);
         }
@@ -70,7 +82,7 @@ const CreateTrip: React.FC = () => {
             }
         } else if (step === 2) {
             if (!formData.startKm) {
-                Alert.alert('Required', 'Please enter Start KM');
+                Alert.alert('Required', 'Please enter Start KM Reading');
                 return false;
             }
         }
@@ -78,10 +90,28 @@ const CreateTrip: React.FC = () => {
     };
 
     const nextStep = () => {
-        if (validateStep()) setStep(s => s + 1);
+        if (validateStep()) {
+            setStep(s => s + 1);
+            slideAnim.setValue(width);
+            Animated.spring(slideAnim, {
+                toValue: 0,
+                useNativeDriver: true,
+                tension: 20,
+                friction: 7,
+            }).start();
+        }
     };
 
-    const prevStep = () => setStep(s => s - 1);
+    const prevStep = () => {
+        setStep(s => s - 1);
+        slideAnim.setValue(-width);
+        Animated.spring(slideAnim, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 20,
+            friction: 7,
+        }).start();
+    };
 
     const addDelivery = () => {
         if (!newDelivery.location || !newDelivery.bags) {
@@ -107,7 +137,6 @@ const CreateTrip: React.FC = () => {
     const handleCreateTrip = async () => {
         try {
             setLoading(true);
-
             const validDeliveries = deliveries.map(d => ({
                 location: d.location,
                 receiverName: d.receiverName || undefined,
@@ -130,8 +159,7 @@ const CreateTrip: React.FC = () => {
             };
 
             await cattleFeedTruckAPI.createTrip(payload);
-            Alert.alert('Success', 'Trip started successfully!');
-            navigation.navigate('CattleFeedTruckDriverActiveTrip');
+            setShowSuccessModal(true);
         } catch (error: any) {
             console.error('Error creating trip:', error);
             Alert.alert('Error', error.response?.data?.message || 'Failed to start trip');
@@ -140,29 +168,52 @@ const CreateTrip: React.FC = () => {
         }
     };
 
+    const renderStepIndicators = () => {
+        return (
+            <View style={styles.stepperContainer}>
+                {[1, 2, 3, 4].map((s) => (
+                    <React.Fragment key={s}>
+                        <View style={styles.stepItem}>
+                            <View style={[
+                                styles.stepCircle,
+                                s <= step ? styles.stepActive : styles.stepInactive,
+                                s < step && styles.stepCompleted
+                            ]}>
+                                {s < step ? (
+                                    <Text style={styles.stepCheck}>✓</Text>
+                                ) : (
+                                    <Text style={[styles.stepNumber, s === step && styles.textWhite]}>{s}</Text>
+                                )}
+                            </View>
+                        </View>
+                        {s < 4 && (
+                            <View style={[
+                                styles.stepLine,
+                                { backgroundColor: s < step ? colors.primary[500] : colors.border.light }
+                            ]} />
+                        )}
+                    </React.Fragment>
+                ))}
+            </View>
+        );
+    };
+
     const renderStepContent = () => {
         switch (step) {
             case 1:
                 return (
-                    <View style={styles.stepContainer}>
-                        <View style={[styles.infoBox, { backgroundColor: '#eff6ff', borderColor: '#dbeafe' }]}>
-                            <Text style={[styles.infoTitle, { color: '#1e40af' }]}>Route & Vehicle</Text>
-                            <Text style={[styles.infoText, { color: '#2563eb' }]}>Select your route and assigned vehicle.</Text>
+                    <Animated.View style={[styles.stepWrapper, { transform: [{ translateX: slideAnim }] }]}>
+                        <View style={styles.stepInfoContainer}>
+                            <Text style={styles.stepTitle}>Basics</Text>
+                            <Text style={styles.stepSubtitle}>Whose vehicle and where to?</Text>
                         </View>
 
-                        <Input
-                            label="Trip Date"
-                            value={formData.date}
-                            onChangeText={t => setFormData({ ...formData, date: t })}
-                            placeholder="YYYY-MM-DD"
-                        />
-
                         <Select
-                            label="Select Vehicle *"
+                            label="Vehicle"
                             value={formData.vehicleId}
                             onChange={v => setFormData({ ...formData, vehicleId: v as string })}
                             options={[
-                                { label: loading ? 'Loading...' : vehicles.length === 0 ? 'No vehicles found' : 'Select Vehicle', value: '' },
+                                { label: loading ? 'Loading...' : 'Select Vehicle', value: '' },
                                 ...vehicles.map(v => ({
                                     label: `${v.registrationNumber} ${v.vehicleType ? `(${v.vehicleType})` : ''}`,
                                     value: v._id
@@ -171,49 +222,51 @@ const CreateTrip: React.FC = () => {
                         />
 
                         <Input
-                            label="From Location *"
+                            label="Route Start"
                             value={formData.from}
                             onChangeText={t => setFormData({ ...formData, from: t })}
+                            placeholder="Current Warehouse / Point"
                         />
 
                         <Input
-                            label="To Location *"
+                            label="Route End"
                             value={formData.to}
                             onChangeText={t => setFormData({ ...formData, to: t })}
+                            placeholder="Final Destination / Shop"
                         />
-                    </View>
+
+                        <Input
+                            label="Trip Date"
+                            value={formData.date}
+                            onChangeText={t => setFormData({ ...formData, date: t })}
+                            placeholder="YYYY-MM-DD"
+                        />
+                    </Animated.View>
                 );
             case 2:
                 return (
-                    <View style={styles.stepContainer}>
-                        <View style={[styles.infoBox, { backgroundColor: '#eef2ff', borderColor: '#e0e7ff' }]}>
-                            <Text style={[styles.infoTitle, { color: '#3730a3' }]}>Trip Metrics</Text>
-                            <Text style={[styles.infoText, { color: '#4f46e5' }]}>Enter initial meter reading and details.</Text>
+                    <Animated.View style={[styles.stepWrapper, { transform: [{ translateX: slideAnim }] }]}>
+                        <View style={styles.stepInfoContainer}>
+                            <Text style={styles.stepTitle}>Metrics</Text>
+                            <Text style={styles.stepSubtitle}>Technical data of the trip</Text>
                         </View>
 
                         <View style={styles.row}>
                             <Input
-                                label="Start KM *"
+                                label="Start KM"
                                 value={formData.startKm}
                                 onChangeText={t => setFormData({ ...formData, startKm: t })}
                                 keyboardType="numeric"
                                 containerStyle={styles.halfInput}
                             />
                             <Input
-                                label="Exp. Avg (KMPL)"
+                                label="Avg KMPL"
                                 value={formData.average}
                                 onChangeText={t => setFormData({ ...formData, average: t })}
                                 keyboardType="numeric"
                                 containerStyle={styles.halfInput}
                             />
                         </View>
-
-                        <Input
-                            label="Est. Distance (KM)"
-                            value={formData.distance}
-                            onChangeText={t => setFormData({ ...formData, distance: t })}
-                            keyboardType="numeric"
-                        />
 
                         <View style={styles.row}>
                             <Input
@@ -233,37 +286,37 @@ const CreateTrip: React.FC = () => {
                         </View>
 
                         <Input
-                            label="Advance Payment (₹)"
+                            label="Advance (₹)"
                             value={formData.advance}
                             onChangeText={t => setFormData({ ...formData, advance: t })}
                             keyboardType="numeric"
                         />
 
                         <Input
-                            label="Helper Name"
+                            label="Helper"
                             value={formData.helperName}
                             onChangeText={t => setFormData({ ...formData, helperName: t })}
                         />
-                    </View>
+                    </Animated.View>
                 );
             case 3:
                 return (
-                    <View style={styles.stepContainer}>
-                        <View style={[styles.infoBox, { backgroundColor: '#f0fdf4', borderColor: '#dcfce7' }]}>
-                            <Text style={[styles.infoTitle, { color: '#166534' }]}>Delivery Plan</Text>
-                            <Text style={[styles.infoText, { color: '#16a34a' }]}>Add all planned stops.</Text>
+                    <Animated.View style={[styles.stepWrapper, { transform: [{ translateX: slideAnim }] }]}>
+                        <View style={styles.stepInfoContainer}>
+                            <Text style={styles.stepTitle}>Plan</Text>
+                            <Text style={styles.stepSubtitle}>Add planned delivery points</Text>
                         </View>
 
                         <Card style={styles.addStopCard}>
-                            <Text style={styles.cardTitle}>Add New Stop</Text>
+                            <Text style={styles.cardHeader}>ADD NEW STOP</Text>
                             <Input
-                                placeholder="Location / Shop Name *"
+                                placeholder="Where to drop?"
                                 value={newDelivery.location}
                                 onChangeText={t => setNewDelivery({ ...newDelivery, location: t })}
                             />
                             <View style={styles.row}>
                                 <Input
-                                    placeholder="Bags *"
+                                    placeholder="Bags"
                                     value={newDelivery.bags}
                                     onChangeText={t => setNewDelivery({ ...newDelivery, bags: t })}
                                     keyboardType="numeric"
@@ -274,313 +327,475 @@ const CreateTrip: React.FC = () => {
                                     value={newDelivery.feedType}
                                     onChange={v => setNewDelivery({ ...newDelivery, feedType: v as string })}
                                     options={['Cattle Feed', 'Poultry Feed', 'Supplements'].map(f => ({ label: f, value: f }))}
-                                    containerStyle={{ flex: 0.6, marginTop: 0 }}
+                                    containerStyle={{ flex: 0.6, marginTop: 4 }}
                                 />
                             </View>
-                            <Input
-                                placeholder="Receiver Name (Optional)"
-                                value={newDelivery.receiverName}
-                                onChangeText={t => setNewDelivery({ ...newDelivery, receiverName: t })}
-                            />
-                            <Button onPress={addDelivery} variant="secondary" style={{ marginTop: 8 }}>
-                                + Add Stop
+                            <Button
+                                onPress={addDelivery}
+                                variant="secondary"
+                                style={{ marginTop: spacing.sm }}
+                            >
+                                + ADD TO LIST
                             </Button>
                         </Card>
 
-                        <ScrollView style={styles.stopsList}>
-                            {deliveries.map((d, i) => (
-                                <View key={i} style={styles.stopItem}>
-                                    <View>
-                                        <Text style={styles.stopLocation}>{d.location}</Text>
-                                        <Text style={styles.stopDetails}>{d.bags} bags • {d.feedType}</Text>
+                        <Text style={styles.listHeader}>STOPS ({deliveries.length})</Text>
+                        {deliveries.map((d, i) => (
+                            <View key={i} style={styles.stopCard}>
+                                <View style={styles.stopInfo}>
+                                    <Text style={styles.stopLoc}>{d.location}</Text>
+                                    <View style={styles.stopMeta}>
+                                        <View style={styles.metaChip}><Text style={styles.metaText}>📦 {d.bags}</Text></View>
+                                        <View style={styles.metaChip}><Text style={styles.metaText}>✨ {d.feedType}</Text></View>
                                     </View>
-                                    <TouchableOpacity onPress={() => removeDelivery(i)}>
-                                        <Text style={{ color: '#ef4444', fontWeight: 'bold' }}>✕</Text>
-                                    </TouchableOpacity>
                                 </View>
-                            ))}
-                            {deliveries.length === 0 && (
-                                <Text style={styles.emptyText}>No stops added yet.</Text>
-                            )}
-                        </ScrollView>
-                    </View>
+                                <TouchableOpacity onPress={() => removeDelivery(i)} style={styles.removeBtn}>
+                                    <Text style={styles.removeText}>✕</Text>
+                                </TouchableOpacity>
+                            </View>
+                        ))}
+                        {deliveries.length === 0 && (
+                            <View style={styles.emptyStops}>
+                                <Text style={styles.emptyStopsText}>No stops added. Add at least one.</Text>
+                            </View>
+                        )}
+                    </Animated.View>
                 );
             case 4:
                 const vehicle = vehicles.find(v => v._id === formData.vehicleId);
+                const totalBags = deliveries.reduce((sum, d) => sum + Number(d.bags), 0);
                 return (
-                    <View style={styles.stepContainer}>
-                        <View style={[styles.infoBox, { backgroundColor: '#fefce8', borderColor: '#fef9c3' }]}>
-                            <Text style={[styles.infoTitle, { color: '#854d0e', fontSize: 18 }]}>Ready to Start?</Text>
-                            <Text style={[styles.infoText, { color: '#a16207' }]}>Please review details before starting.</Text>
+                    <Animated.View style={[styles.stepWrapper, { transform: [{ translateX: slideAnim }] }]}>
+                        <View style={styles.stepInfoContainer}>
+                            <Text style={styles.stepTitle}>Verify</Text>
+                            <Text style={styles.stepSubtitle}>Check everything before takeoff</Text>
                         </View>
 
-                        <Card>
-                            <View style={styles.reviewRow}>
-                                <Text style={styles.reviewLabel}>Route</Text>
-                                <Text style={styles.reviewValue}>{formData.from} ➝ {formData.to}</Text>
+                        <Card style={styles.reviewCard}>
+                            <View style={styles.reviewMainItem}>
+                                <Text style={styles.reviewMainVal}>{formData.from} → {formData.to}</Text>
+                                <Text style={styles.reviewMainLabel}>ROUTE</Text>
                             </View>
-                            <View style={styles.reviewRow}>
-                                <Text style={styles.reviewLabel}>Vehicle</Text>
-                                <View style={{ alignItems: 'flex-end' }}>
+
+                            <View style={styles.reviewGrid}>
+                                <View style={styles.reviewChild}>
+                                    <Text style={styles.reviewLabel}>VEHICLE</Text>
                                     <Text style={styles.reviewValue}>{vehicle?.registrationNumber || 'N/A'}</Text>
-                                    <Text style={styles.reviewSub}>Start KM: {formData.startKm}</Text>
+                                </View>
+                                <View style={styles.reviewChild}>
+                                    <Text style={styles.reviewLabel}>METER</Text>
+                                    <Text style={styles.reviewValue}>{formData.startKm} KM</Text>
+                                </View>
+                                <View style={styles.reviewChild}>
+                                    <Text style={styles.reviewLabel}>STOPS</Text>
+                                    <Text style={styles.reviewValue}>{deliveries.length}</Text>
+                                </View>
+                                <View style={styles.reviewChild}>
+                                    <Text style={styles.reviewLabel}>TOTAL LOAD</Text>
+                                    <Text style={[styles.reviewValue, { color: colors.success[600] }]}>{totalBags} BAGS</Text>
                                 </View>
                             </View>
-                            <View style={styles.reviewRow}>
-                                <Text style={styles.reviewLabel}>Total Stops</Text>
-                                <Text style={[styles.reviewValue, { color: '#2563eb' }]}>{deliveries.length} Locations</Text>
-                            </View>
-                            <View style={[styles.reviewRow, { borderBottomWidth: 0 }]}>
-                                <Text style={styles.reviewLabel}>Total Load</Text>
-                                <Text style={[styles.reviewValue, { color: '#16a34a', fontSize: 18 }]}>
-                                    {deliveries.reduce((sum, d) => sum + Number(d.bags), 0)} Bags
-                                </Text>
-                            </View>
                         </Card>
-                    </View>
+
+                        <View style={[styles.infoBox, { backgroundColor: colors.warning[50], borderColor: colors.warning[100] }]}>
+                            <Text style={styles.warningText}>
+                                Once started, you won't be able to edit these metrics until you complete the trip.
+                            </Text>
+                        </View>
+                    </Animated.View>
                 );
             default: return null;
         }
     };
 
     return (
-        <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={styles.container}
-        >
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-                    <Text style={styles.backButtonText}>← Back</Text>
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Start New Trip</Text>
-            </View>
-
-            {/* Progress Steps */}
-            <View style={styles.progressContainer}>
-                {[1, 2, 3, 4].map((s) => (
-                    <View key={s} style={styles.progressStep}>
-                        <View style={[
-                            styles.stepCircle,
-                            s <= step ? styles.stepActive : styles.stepInactive
-                        ]}>
-                            <Text style={[styles.stepText, s <= step ? { color: '#fff' } : { color: '#9ca3af' }]}>
-                                {s < step ? '✓' : s}
-                            </Text>
-                        </View>
-                        {s < 4 && (
-                            <View style={[
-                                styles.stepLine,
-                                { backgroundColor: s < step ? '#2563eb' : '#e5e7eb' }
-                            ]} />
-                        )}
+        <>
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={styles.container}
+            >
+                <LinearGradient
+                    colors={[colors.primary[700], colors.primary[900]]}
+                    style={styles.header}
+                >
+                    <View style={styles.headerTop}>
+                        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                            <Text style={styles.backButtonIcon}>←</Text>
+                        </TouchableOpacity>
+                        <Text style={styles.headerTitle}>New Shipment</Text>
+                        <View style={{ width: 40 }} />
                     </View>
-                ))}
-            </View>
-            <View style={styles.stepLabels}>
-                <Text style={[styles.stepLabel, step >= 1 ? styles.textActive : styles.textInactive]}>Route</Text>
-                <Text style={[styles.stepLabel, step >= 2 ? styles.textActive : styles.textInactive]}>Metrics</Text>
-                <Text style={[styles.stepLabel, step >= 3 ? styles.textActive : styles.textInactive]}>Plan</Text>
-                <Text style={[styles.stepLabel, step >= 4 ? styles.textActive : styles.textInactive]}>Review</Text>
-            </View>
+                    {renderStepIndicators()}
+                </LinearGradient>
 
-            <ScrollView contentContainerStyle={styles.content}>
-                {renderStepContent()}
-            </ScrollView>
+                <ScrollView
+                    style={styles.content}
+                    contentContainerStyle={styles.scrollContent}
+                    showsVerticalScrollIndicator={false}
+                >
+                    <Animated.View style={{ opacity: fadeAnim }}>
+                        {renderStepContent()}
+                    </Animated.View>
+                </ScrollView>
 
-            <View style={styles.footer}>
-                {step > 1 ? (
-                    <Button onPress={prevStep} variant="secondary" style={{ flex: 1, marginRight: 8 }}>
-                        Back
-                    </Button>
-                ) : (
-                    <Button onPress={() => navigation.goBack()} variant="secondary" style={{ flex: 1, marginRight: 8 }}>
-                        Cancel
-                    </Button>
-                )}
+                <View style={styles.footer}>
+                    {step > 1 ? (
+                        <TouchableOpacity
+                            style={styles.secondaryBtn}
+                            onPress={prevStep}
+                            disabled={loading}
+                        >
+                            <Text style={styles.btnTextSecondary}>PREVIOUS</Text>
+                        </TouchableOpacity>
+                    ) : (
+                        <TouchableOpacity
+                            style={styles.secondaryBtn}
+                            onPress={() => navigation.goBack()}
+                            disabled={loading}
+                        >
+                            <Text style={styles.btnTextSecondary}>CANCEL</Text>
+                        </TouchableOpacity>
+                    )}
 
-                {step < 4 ? (
-                    <Button onPress={nextStep} style={{ flex: 2 }}>
-                        Next Step →
+                    <TouchableOpacity
+                        style={styles.primaryBtn}
+                        onPress={step < 4 ? nextStep : handleCreateTrip}
+                        disabled={loading}
+                    >
+                        <LinearGradient
+                            colors={[step < 4 ? colors.primary[500] : colors.success[500], step < 4 ? colors.primary[700] : colors.success[700]]}
+                            style={styles.btnGradient}
+                        >
+                            {loading ? (
+                                <ActivityIndicator size="small" color="#FFFFFF" />
+                            ) : (
+                                <Text style={styles.btnTextPrimary}>
+                                    {step < 4 ? 'NEXT STEP' : 'START TRIP'}
+                                </Text>
+                            )}
+                        </LinearGradient>
+                    </TouchableOpacity>
+                </View>
+            </KeyboardAvoidingView>
+
+            {/* Success Modal */}
+            <Modal
+                visible={showSuccessModal}
+                onClose={() => {
+                    setShowSuccessModal(false);
+                    navigation.replace('CattleFeedTruckDriverActiveTrip');
+                }}
+                title="Trip Created!"
+                subtitle="Your journey has officially started"
+                icon="✨"
+                footer={
+                    <Button
+                        onPress={() => {
+                            setShowSuccessModal(false);
+                            navigation.replace('CattleFeedTruckDriverActiveTrip');
+                        }}
+                    >
+                        LET'S GO
                     </Button>
-                ) : (
-                    <Button onPress={handleCreateTrip} style={{ flex: 2, backgroundColor: '#16a34a' }}>
-                        Start Trip
-                    </Button>
-                )}
-            </View>
-        </KeyboardAvoidingView>
+                }
+            >
+                <View style={{ alignItems: 'center', paddingVertical: spacing.md }}>
+                    <Text style={{ textAlign: 'center', color: colors.text.tertiary, fontSize: 14 }}>
+                        New trip for vehicle {vehicles.find(v => v._id === formData.vehicleId)?.registrationNumber} has been recorded.
+                    </Text>
+                </View>
+            </Modal>
+        </>
     );
 };
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#f9fafb',
+        backgroundColor: colors.background.secondary,
     },
     header: {
-        padding: 16,
-        backgroundColor: '#fff',
-        borderBottomWidth: 1,
-        borderBottomColor: '#e5e7eb',
+        paddingTop: 60,
+        paddingBottom: spacing.lg,
+        paddingHorizontal: spacing.xl,
+        borderBottomLeftRadius: borderRadius.xl,
+        borderBottomRightRadius: borderRadius.xl,
+        ...shadows.lg,
+    },
+    headerTop: {
         flexDirection: 'row',
+        justifyContent: 'space-between',
         alignItems: 'center',
+        marginBottom: spacing.lg,
     },
     backButton: {
-        marginRight: 16,
-    },
-    backButtonText: {
-        color: '#6b7280',
-        fontSize: 14,
-    },
-    headerTitle: {
-        fontSize: 20,
-        fontWeight: 'bold',
-        color: '#111827',
-    },
-    progressContainer: {
-        flexDirection: 'row',
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: 'rgba(255,255,255,0.2)',
         justifyContent: 'center',
         alignItems: 'center',
-        marginTop: 24,
-        paddingHorizontal: 40,
     },
-    progressStep: {
+    backButtonIcon: {
+        color: '#FFFFFF',
+        fontSize: 20,
+        fontWeight: 'bold',
+    },
+    headerTitle: {
+        color: '#FFFFFF',
+        fontSize: 18,
+        fontWeight: 'bold',
+    },
+    stepperContainer: {
         flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: spacing.sm,
+    },
+    stepItem: {
         alignItems: 'center',
     },
     stepCircle: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
+        width: 30,
+        height: 30,
+        borderRadius: 15,
         justifyContent: 'center',
         alignItems: 'center',
         borderWidth: 2,
     },
     stepActive: {
-        backgroundColor: '#2563eb',
-        borderColor: '#2563eb',
+        backgroundColor: '#FFFFFF',
+        borderColor: '#FFFFFF',
     },
     stepInactive: {
-        backgroundColor: '#fff',
-        borderColor: '#e5e7eb',
+        borderColor: 'rgba(255,255,255,0.3)',
     },
-    stepText: {
+    stepCompleted: {
+        backgroundColor: colors.success[400],
+        borderColor: colors.success[400],
+    },
+    stepNumber: {
+        fontSize: 12,
         fontWeight: 'bold',
+        color: 'rgba(255,255,255,0.5)',
+    },
+    textWhite: {
+        color: colors.primary[700],
+    },
+    stepCheck: {
+        color: '#FFFFFF',
         fontSize: 14,
+        fontWeight: 'bold',
     },
     stepLine: {
-        width: 40,
+        flex: 1,
         height: 2,
         marginHorizontal: 4,
     },
-    stepLabels: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        paddingHorizontal: 30,
-        marginTop: 8,
-        marginBottom: 16,
-    },
-    stepLabel: {
-        fontSize: 12,
-        fontWeight: '600',
-        width: 50,
-        textAlign: 'center',
-    },
-    textActive: { color: '#2563eb' },
-    textInactive: { color: '#9ca3af' },
     content: {
-        padding: 16,
-        paddingBottom: 100,
-    },
-    stepContainer: {
         flex: 1,
     },
-    infoBox: {
-        padding: 16,
-        borderRadius: 8,
-        borderWidth: 1,
-        marginBottom: 20,
+    scrollContent: {
+        padding: spacing.lg,
+        paddingBottom: 120,
     },
-    infoTitle: {
-        fontWeight: 'bold',
-        marginBottom: 4,
+    stepWrapper: {
+        width: '100%',
     },
-    infoText: {
-        fontSize: 12,
+    stepInfoContainer: {
+        marginBottom: spacing.xl,
+    },
+    stepTitle: {
+        fontSize: typography.fontSize['2xl'],
+        fontWeight: '900',
+        color: colors.text.primary,
+    },
+    stepSubtitle: {
+        fontSize: typography.fontSize.sm,
+        color: colors.text.tertiary,
+        marginTop: 4,
     },
     row: {
         flexDirection: 'row',
-        gap: 12,
+        gap: spacing.md,
     },
     halfInput: {
         flex: 1,
     },
     addStopCard: {
-        padding: 16,
-        marginBottom: 16,
-    },
-    cardTitle: {
-        fontWeight: 'bold',
-        marginBottom: 12,
-        color: '#374151',
-    },
-    stopsList: {
-        maxHeight: 300,
-    },
-    stopItem: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: 12,
-        backgroundColor: '#fff',
-        borderRadius: 8,
-        marginBottom: 8,
+        padding: spacing.md,
         borderWidth: 1,
-        borderColor: '#e5e7eb',
+        borderStyle: 'dashed',
+        borderColor: colors.primary[300],
+        marginBottom: spacing.xl,
     },
-    stopLocation: {
-        fontWeight: 'bold',
-        color: '#111827',
+    cardHeader: {
+        fontSize: 10,
+        fontWeight: 'black',
+        color: colors.primary[600],
+        letterSpacing: 2,
+        marginBottom: spacing.sm,
     },
-    stopDetails: {
-        fontSize: 12,
-        color: '#6b7280',
+    listHeader: {
+        fontSize: 10,
+        fontWeight: 'black',
+        color: colors.text.tertiary,
+        letterSpacing: 1.5,
+        marginBottom: spacing.md,
     },
-    emptyText: {
-        textAlign: 'center',
-        color: '#9ca3af',
-        fontStyle: 'italic',
-        marginTop: 20,
-    },
-    reviewRow: {
+    stopCard: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
-        paddingVertical: 12,
+        backgroundColor: '#FFFFFF',
+        padding: spacing.md,
+        borderRadius: borderRadius.lg,
+        marginBottom: spacing.sm,
+        alignItems: 'center',
+        ...shadows.sm,
+    },
+    stopInfo: {
+        flex: 1,
+    },
+    stopLoc: {
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: colors.text.primary,
+    },
+    stopMeta: {
+        flexDirection: 'row',
+        gap: spacing.xs,
+        marginTop: 4,
+    },
+    metaChip: {
+        backgroundColor: colors.background.tertiary,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 4,
+    },
+    metaText: {
+        fontSize: 9,
+        fontWeight: '600',
+        color: colors.text.secondary,
+    },
+    removeBtn: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: colors.error[50],
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    removeText: {
+        color: colors.error[600],
+        fontWeight: 'bold',
+    },
+    emptyStops: {
+        padding: spacing.xl,
+        alignItems: 'center',
+        backgroundColor: 'rgba(0,0,0,0.02)',
+        borderRadius: borderRadius.lg,
+        borderWidth: 1,
+        borderColor: colors.border.light,
+    },
+    emptyStopsText: {
+        color: colors.text.tertiary,
+        fontSize: 12,
+        fontStyle: 'italic',
+    },
+    reviewCard: {
+        padding: spacing.lg,
+    },
+    reviewMainItem: {
+        alignItems: 'center',
+        paddingBottom: spacing.lg,
         borderBottomWidth: 1,
-        borderBottomColor: '#f3f4f6',
+        borderBottomColor: 'rgba(0,0,0,0.05)',
+        marginBottom: spacing.lg,
+    },
+    reviewMainVal: {
+        fontSize: typography.fontSize.lg,
+        fontWeight: 'bold',
+        color: colors.text.primary,
+        textAlign: 'center',
+    },
+    reviewMainLabel: {
+        fontSize: 10,
+        fontWeight: 'black',
+        color: colors.text.tertiary,
+        letterSpacing: 1.5,
+        marginTop: 4,
+    },
+    reviewGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+    },
+    reviewChild: {
+        width: '50%',
+        marginBottom: spacing.md,
     },
     reviewLabel: {
-        color: '#6b7280',
-        fontWeight: '500',
+        fontSize: 9,
+        fontWeight: 'bold',
+        color: colors.text.tertiary,
     },
     reviewValue: {
+        fontSize: 14,
         fontWeight: 'bold',
-        color: '#111827',
+        color: colors.text.primary,
     },
-    reviewSub: {
-        fontSize: 10,
-        color: '#9ca3af',
+    infoBox: {
+        padding: spacing.md,
+        borderRadius: borderRadius.md,
+        borderWidth: 1,
+        marginTop: spacing.md,
+    },
+    warningText: {
+        fontSize: 11,
+        color: colors.warning[800],
+        lineHeight: 16,
     },
     footer: {
         position: 'absolute',
         bottom: 0,
         left: 0,
         right: 0,
-        padding: 16,
-        backgroundColor: '#fff',
-        borderTopWidth: 1,
-        borderTopColor: '#e5e7eb',
+        padding: spacing.lg,
+        paddingBottom: 40,
+        backgroundColor: '#FFFFFF',
         flexDirection: 'row',
+        gap: spacing.md,
+        borderTopWidth: 1,
+        borderTopColor: colors.border.light,
+        ...shadows.lg,
+    },
+    secondaryBtn: {
+        flex: 1,
+        height: 52,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderRadius: borderRadius.xl,
+        backgroundColor: colors.background.secondary,
+    },
+    btnTextSecondary: {
+        fontSize: 12,
+        fontWeight: 'bold',
+        color: colors.text.tertiary,
+        letterSpacing: 1,
+    },
+    primaryBtn: {
+        flex: 2,
+        height: 52,
+        borderRadius: borderRadius.xl,
+        overflow: 'hidden',
+    },
+    btnGradient: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    btnTextPrimary: {
+        color: '#FFFFFF',
+        fontSize: 14,
+        fontWeight: 'bold',
+        letterSpacing: 1,
     },
 });
 

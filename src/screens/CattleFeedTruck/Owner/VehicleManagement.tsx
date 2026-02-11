@@ -1,148 +1,230 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert, FlatList } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert, TouchableOpacity, Animated, RefreshControl, StatusBar, Platform, TextInput } from 'react-native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import LinearGradient from 'react-native-linear-gradient';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { cattleFeedTruckAPI } from '../../../utils/api';
 import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
-import Input from '../../../components/common/Input';
-import Modal from '../../../components/common/Modal';
+import ScreenHeader from '../../../components/common/ScreenHeader';
+import { colors } from '../../../theme/colors';
+import { spacing, borderRadius, shadows } from '../../../theme/spacing';
 
 interface Vehicle {
   _id: string;
   registrationNumber: string;
   vehicleType?: string;
   capacity?: string;
-  driverAssigned?: string;
+  assignedDriver?: string;
   status?: string;
 }
 
 const VehicleManagement: React.FC = () => {
   const { user } = useAuth();
+  const navigation = useNavigation<any>();
   const toast = useToast();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [drivers, setDrivers] = useState<any[]>([]);
+  const [filteredVehicles, setFilteredVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
-  const [formData, setFormData] = useState({
-    registrationNumber: '',
-    vehicleType: '',
-    capacity: '',
-    driverAssigned: '',
-  });
+  const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Animations
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
+
+  // Refresh when focused
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchData();
+    }, [])
+  );
 
   useEffect(() => {
-    fetchVehicles();
+    // Entrance animations
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        tension: 50,
+        friction: 8,
+        useNativeDriver: true,
+      }),
+    ]).start();
   }, []);
 
-  const fetchVehicles = async () => {
+  useEffect(() => {
+    if (searchQuery.trim() === '') {
+      setFilteredVehicles(vehicles);
+    } else {
+      const filtered = vehicles.filter(vehicle =>
+        vehicle.registrationNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        vehicle.vehicleType?.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+      setFilteredVehicles(filtered);
+    }
+  }, [searchQuery, vehicles]);
+
+  const fetchData = async () => {
     try {
-      const response = await cattleFeedTruckAPI.getVehicles();
-      setVehicles(Array.isArray(response) ? response : (Array.isArray(response.data) ? response.data : []));
+      const [vehiclesRes, driversRes] = await Promise.all([
+        cattleFeedTruckAPI.getVehicles(user?.id),
+        cattleFeedTruckAPI.getDrivers(user?.id)
+      ]);
+
+      const vehiclesData = Array.isArray(vehiclesRes) ? vehiclesRes : (Array.isArray(vehiclesRes.data) ? vehiclesRes.data : []);
+      const driversData = Array.isArray(driversRes) ? driversRes : (Array.isArray(driversRes.data) ? driversRes.data : []);
+
+      setVehicles(vehiclesData);
+      setFilteredVehicles(vehiclesData);
+      setDrivers(driversData);
     } catch (error: any) {
-      console.error('Error fetching vehicles:', error);
-      toast.error('Error loading vehicles');
+      console.error('Error fetching data:', error);
+      toast.error('Error loading data');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  const handleSubmit = async () => {
-    try {
-      const vehicleData = {
-        ...formData,
-        ownerId: user?._id || user?.id,
-      };
+  const onRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    fetchData();
+  }, []);
 
-      if (editingVehicle) {
-        await cattleFeedTruckAPI.updateVehicle(editingVehicle._id, vehicleData);
-        toast.success('Vehicle updated successfully!');
-      } else {
-        await cattleFeedTruckAPI.createVehicle(vehicleData);
-        toast.success('Vehicle created successfully!');
-      }
-      setShowModal(false);
-      resetForm();
-      fetchVehicles();
-    } catch (error: any) {
-      console.error('Error saving vehicle:', error);
-      toast.error(error.response?.data?.message || error.message);
-    }
+  const handleAdd = () => {
+    navigation.navigate('ManageVehicle');
   };
 
   const handleEdit = (vehicle: Vehicle) => {
-    setEditingVehicle(vehicle);
-    setFormData({
-      registrationNumber: vehicle.registrationNumber,
-      vehicleType: vehicle.vehicleType || '',
-      capacity: vehicle.capacity || '',
-      driverAssigned: vehicle.driverAssigned || '',
-    });
-    setShowModal(true);
+    navigation.navigate('ManageVehicle', { vehicle });
   };
 
-  const handleDelete = async (id: string) => {
-    Alert.alert('Delete Vehicle', 'Are you sure you want to delete this vehicle?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await cattleFeedTruckAPI.deleteVehicle(id);
-            toast.success('Vehicle deleted successfully!');
-            fetchVehicles();
-          } catch (error: any) {
-            console.error('Error deleting vehicle:', error);
-            toast.error('Error deleting vehicle');
-          }
+  const handleDelete = (id: string) => {
+    Alert.alert(
+      'Delete Vehicle',
+      'Are you sure you want to delete this vehicle?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setLoading(true);
+              await cattleFeedTruckAPI.deleteVehicle(id);
+              toast.success('Vehicle deleted successfully!');
+              fetchData();
+            } catch (error: any) {
+              console.error('Error deleting vehicle:', error);
+              toast.error('Error deleting vehicle');
+            } finally {
+              setLoading(false);
+            }
+          },
         },
-      },
-    ]);
+      ]
+    );
   };
 
-  const resetForm = () => {
-    setFormData({ registrationNumber: '', vehicleType: '', capacity: '', driverAssigned: '' });
-    setEditingVehicle(null);
-  };
+  if (loading && !refreshing && vehicles.length === 0) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={colors.primary[500]} />
+        <Text style={styles.loadingText}>Loading Fleet...</Text>
+      </View>
+    );
+  }
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Vehicle Management</Text>
-        <Button
-          onPress={() => {
-            resetForm();
-            setShowModal(true);
-          }}
-        >
-          + Add Vehicle
-        </Button>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+
+      <LinearGradient
+        colors={[colors.primary[600], colors.primary[400], colors.background.primary]}
+        style={styles.backgroundGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 0.6 }}
+      />
+
+      <View style={styles.headerSpacer} />
+
+      <ScreenHeader
+        title="Vehicle Management"
+        subtitle="Manage your transport fleet"
+        transparent
+        titleStyle={{ color: '#fff' }}
+        subtitleStyle={{ color: 'rgba(255, 255, 255, 0.8)' }}
+        rightAction={
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={handleAdd}
+          >
+            <Text style={styles.addButtonText}>+ New</Text>
+          </TouchableOpacity>
+        }
+      />
+
+      <View style={styles.searchContainer}>
+        <View style={styles.searchBar}>
+          <Text style={styles.searchIcon}>🔍</Text>
+          <TextInput
+            placeholder="Search by registration number..."
+            placeholderTextColor={colors.text.tertiary}
+            style={styles.searchInput}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          {searchQuery !== '' && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <Text style={styles.clearIcon}>✕</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
-      {loading ? (
-        <ActivityIndicator size="large" color="#3b82f6" style={styles.loader} />
-      ) : (
-        <Card style={styles.listCard}>
-          {vehicles.length === 0 ? (
+      <ScrollView
+        style={styles.scrollView}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />
+        }
+      >
+        <Animated.View style={[styles.content, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+          {filteredVehicles.length === 0 ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>
-                No vehicles found. Add your first vehicle to get started.
+              <View style={styles.emptyIconBox}>
+                <Text style={styles.emptyIcon}>🚚</Text>
+              </View>
+              <Text style={styles.emptyTitle}>No Vehicles Found</Text>
+              <Text style={styles.emptySubtitle}>
+                {searchQuery ? `No results match "${searchQuery}"` : "You haven't registered any vehicles yet."}
               </Text>
+              <Button
+                onPress={() => searchQuery ? setSearchQuery('') : handleAdd()}
+                variant="outline"
+                style={styles.emptyButton}
+              >
+                {searchQuery ? "Clear Search" : "Add Vehicle"}
+              </Button>
             </View>
           ) : (
-            <FlatList
-              data={vehicles}
-              keyExtractor={(item) => item._id}
-              scrollEnabled={false}
-              renderItem={({ item: vehicle }) => (
-                <View style={styles.vehicleItem}>
-                  <View style={styles.vehicleInfo}>
-                    <Text style={styles.vehicleRegistration}>{vehicle.registrationNumber}</Text>
-                    <Text style={styles.vehicleType}>{vehicle.vehicleType || 'N/A'}</Text>
-                    <Text style={styles.vehicleCapacity}>
-                      Capacity: {vehicle.capacity || 'N/A'} tons
-                    </Text>
+            <View style={styles.list}>
+              {filteredVehicles.map((vehicle) => (
+                <Card key={vehicle._id} style={styles.card}>
+                  <View style={styles.cardTop}>
+                    <View style={styles.iconContainer}>
+                      <Text style={styles.iconEmoji}>🚛</Text>
+                    </View>
+                    <View style={styles.info}>
+                      <Text style={styles.registration}>{vehicle.registrationNumber}</Text>
+                      <Text style={styles.type}>{vehicle.vehicleType || 'Commercial Vehicle'}</Text>
+                    </View>
                     <View style={[
                       styles.statusBadge,
                       (vehicle.status === 'Active' || !vehicle.status) ? styles.statusActive : styles.statusInactive
@@ -151,187 +233,273 @@ const VehicleManagement: React.FC = () => {
                         styles.statusText,
                         (vehicle.status === 'Active' || !vehicle.status) ? styles.statusActiveText : styles.statusInactiveText
                       ]}>
-                        {vehicle.status || 'Active'}
+                        {(vehicle.status || 'Active').toUpperCase()}
                       </Text>
                     </View>
                   </View>
-                  <View style={styles.vehicleActions}>
-                    <Button
-                      onPress={() => handleEdit(vehicle)}
-                      variant="secondary"
-                      style={styles.actionButton}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      onPress={() => handleDelete(vehicle._id)}
-                      variant="danger"
-                      style={styles.actionButton}
-                    >
-                      Delete
-                    </Button>
-                  </View>
-                </View>
-              )}
-            />
-          )}
-        </Card>
-      )}
 
-      {/* Create/Edit Modal */}
-      <Modal
-        visible={showModal}
-        onClose={() => {
-          setShowModal(false);
-          resetForm();
-        }}
-        title={editingVehicle ? 'Edit Vehicle' : 'Add Vehicle'}
-      >
-        <Input
-          label="Registration Number *"
-          value={formData.registrationNumber}
-          onChangeText={(text) => setFormData({ ...formData, registrationNumber: text })}
-          placeholder="e.g., MH-12-AB-1234"
-          required
-        />
-        <Input
-          label="Vehicle Type"
-          value={formData.vehicleType}
-          onChangeText={(text) => setFormData({ ...formData, vehicleType: text })}
-          placeholder="e.g., Truck, Lorry"
-        />
-        <Input
-          label="Capacity (tons)"
-          value={formData.capacity}
-          onChangeText={(text) => setFormData({ ...formData, capacity: text })}
-          keyboardType="numeric"
-          placeholder="e.g., 10"
-        />
-        <Input
-          label="Driver Assigned"
-          value={formData.driverAssigned}
-          onChangeText={(text) => setFormData({ ...formData, driverAssigned: text })}
-          placeholder="Optional"
-        />
-        <View style={styles.modalActions}>
-          <Button
-            onPress={() => {
-              setShowModal(false);
-              resetForm();
-            }}
-            variant="secondary"
-            style={styles.modalButton}
-          >
-            Cancel
-          </Button>
-          <Button onPress={handleSubmit} style={styles.modalButton}>
-            {editingVehicle ? 'Update' : 'Create'}
-          </Button>
-        </View>
-      </Modal>
-    </ScrollView>
+                  <View style={styles.divider} />
+
+                  <View style={styles.details}>
+                    <View style={styles.detailItem}>
+                      <Text style={styles.detailLabel}>Capacity</Text>
+                      <Text style={styles.detailValue}>{vehicle.capacity ? `${vehicle.capacity} Tons` : 'N/A'}</Text>
+                    </View>
+                    <View style={styles.detailItem}>
+                      <Text style={styles.detailLabel}>Driver</Text>
+                      <Text style={styles.detailValue} numberOfLines={1}>
+                        {drivers.find(d => d._id === vehicle.assignedDriver)?.name || 'Unassigned'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.actions}>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, styles.editBtn]}
+                      onPress={() => handleEdit(vehicle)}
+                    >
+                      <Text style={styles.editBtnText}>Manage</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, styles.deleteBtn]}
+                      onPress={() => handleDelete(vehicle._id)}
+                    >
+                      <Text style={styles.deleteBtnText}>Remove</Text>
+                    </TouchableOpacity>
+                  </View>
+                </Card>
+              ))}
+            </View>
+          )}
+          <View style={{ height: 100 }} />
+        </Animated.View>
+      </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: colors.background.primary,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#ffffff',
+  backgroundGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: 300,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#111827',
+  headerSpacer: {
+    height: Platform.OS === 'ios' ? 40 : 20,
   },
-  loader: {
-    marginVertical: 32,
-  },
-  listCard: {
-    margin: 16,
-    marginTop: 0,
-  },
-  vehicleItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-  },
-  vehicleInfo: {
+  scrollView: {
     flex: 1,
   },
-  vehicleRegistration: {
-    fontSize: 16,
+  content: {
+    padding: spacing.md,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  loadingText: {
+    marginTop: 12,
+    color: colors.primary[600],
+    fontWeight: '500',
+  },
+  addButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  addButtonText: {
+    color: '#fff',
     fontWeight: '600',
-    color: '#111827',
-    marginBottom: 4,
-  },
-  vehicleType: {
     fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 4,
   },
-  vehicleCapacity: {
-    fontSize: 12,
-    color: '#9ca3af',
-    marginBottom: 8,
+  searchContainer: {
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: borderRadius.lg,
+    paddingHorizontal: 12,
+    height: 48,
+    ...shadows.md,
+  },
+  searchIcon: {
+    fontSize: 16,
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: colors.text.primary,
+  },
+  clearIcon: {
+    fontSize: 14,
+    color: colors.text.tertiary,
+    padding: 4,
+  },
+  list: {
+    gap: 16,
+    marginTop: spacing.sm,
+  },
+  card: {
+    padding: spacing.md,
+    borderRadius: borderRadius.xl,
+    backgroundColor: '#fff',
+    ...shadows.md,
+    borderWidth: 1,
+    borderColor: colors.border.light,
+  },
+  cardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: colors.primary[50],
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  iconEmoji: {
+    fontSize: 24,
+  },
+  info: {
+    flex: 1,
+  },
+  registration: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.text.primary,
+    marginBottom: 2,
+  },
+  type: {
+    fontSize: 13,
+    color: colors.text.secondary,
   },
   statusBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 12,
-    alignSelf: 'flex-start',
+    borderRadius: 8,
   },
   statusActive: {
     backgroundColor: '#dcfce7',
   },
   statusInactive: {
-    backgroundColor: '#f3f4f6',
+    backgroundColor: colors.background.tertiary,
   },
   statusText: {
     fontSize: 10,
-    fontWeight: '600',
+    fontWeight: '800',
   },
   statusActiveText: {
     color: '#16a34a',
   },
   statusInactiveText: {
-    color: '#374151',
+    color: colors.text.tertiary,
   },
-  vehicleActions: {
+  divider: {
+    height: 1,
+    backgroundColor: colors.border.light,
+    marginVertical: 12,
+  },
+  details: {
     flexDirection: 'row',
-    gap: 8,
+    marginBottom: 16,
   },
-  actionButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 12,
-    marginTop: 24,
-  },
-  modalButton: {
+  detailItem: {
     flex: 1,
+  },
+  detailLabel: {
+    fontSize: 11,
+    color: colors.text.tertiary,
+    textTransform: 'uppercase',
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  detailValue: {
+    fontSize: 13,
+    color: colors.text.primary,
+    fontWeight: '600',
+  },
+  actions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  actionBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  editBtn: {
+    backgroundColor: '#fff',
+    borderColor: colors.primary[600],
+  },
+  editBtnText: {
+    color: colors.primary[600],
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  deleteBtn: {
+    backgroundColor: '#fef2f2',
+    borderColor: '#fee2e2',
+  },
+  deleteBtnText: {
+    color: '#ef4444',
+    fontWeight: '600',
+    fontSize: 14,
   },
   emptyState: {
     alignItems: 'center',
-    paddingVertical: 32,
+    paddingVertical: 60,
   },
-  emptyText: {
+  emptyIconBox: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: colors.background.tertiary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+    opacity: 0.8,
+  },
+  emptyIcon: {
+    fontSize: 40,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: colors.text.primary,
+    marginBottom: 8,
+  },
+  emptySubtitle: {
     fontSize: 14,
-    color: '#6b7280',
+    color: colors.text.tertiary,
     textAlign: 'center',
+    marginBottom: 24,
+    paddingHorizontal: 40,
+  },
+  emptyButton: {
+    width: 160,
   },
 });
+
 
 export default VehicleManagement;

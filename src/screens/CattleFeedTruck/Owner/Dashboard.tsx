@@ -1,425 +1,403 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, RefreshControl, Animated, StatusBar, Platform } from 'react-native';
+import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../../contexts/AuthContext';
 import { cattleFeedTruckAPI } from '../../../utils/api';
 import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
-
-interface DashboardStats {
-  totalDrivers?: number;
-  totalTrips?: number;
-  completedTrips?: number;
-  todayTrips?: number;
-}
+import ScreenHeader from '../../../components/common/ScreenHeader';
+import { colors } from '../../../theme/colors';
+import { spacing, borderRadius, shadows } from '../../../theme/spacing';
+import { typography } from '../../../theme/typography';
 
 const CattleFeedTruckOwnerDashboard: React.FC = () => {
   const { user, logout } = useAuth();
   const navigation = useNavigation<any>();
-  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [trips, setTrips] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showMenu, setShowMenu] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Animations
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
 
   useEffect(() => {
-    fetchDashboardStats();
+    fetchDashboardData();
+
+    // Entrance animations
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        tension: 50,
+        friction: 8,
+        useNativeDriver: true,
+      }),
+    ]).start();
   }, []);
 
-  const handleLogout = async () => {
-    try {
-      await logout();
-    } catch (error) {
-      console.error('Logout failed:', error);
-      Alert.alert('Error', 'Failed to log out');
-    }
-  };
 
-  const fetchDashboardStats = async () => {
+  const fetchDashboardData = async () => {
     try {
-      // Note: The dashboard-stats endpoint might not exist, so we'll calculate from trips
-      const [tripsResponse, driversResponse] = await Promise.all([
-        cattleFeedTruckAPI.getTrips(),
-        cattleFeedTruckAPI.getDrivers(),
-      ]);
-
+      const tripsResponse = await cattleFeedTruckAPI.getTrips(user?.id);
       const tripsData = Array.isArray(tripsResponse) ? tripsResponse : (Array.isArray(tripsResponse.data) ? tripsResponse.data : []);
-      const driversData = Array.isArray(driversResponse) ? driversResponse : (Array.isArray(driversResponse.data) ? driversResponse.data : []);
-
       setTrips(tripsData);
-
-      // Calculate stats from trips
-      const today = new Date().toDateString();
-      const todayTrips = tripsData.filter((trip: any) => {
-        const tripDate = new Date(trip.date || trip.createdAt || '').toDateString();
-        return tripDate === today;
-      });
-
-      setStats({
-        totalDrivers: driversData.length,
-        totalTrips: tripsData.length,
-        completedTrips: tripsData.filter((t: any) => t.status === 'completed').length,
-        todayTrips: todayTrips.length,
-      });
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  if (loading) {
+  const onRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    fetchDashboardData();
+  }, []);
+
+  if (loading && !refreshing) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#3b82f6" />
+        <ActivityIndicator size="large" color={colors.primary[500]} />
+        <Text style={styles.loadingText}>Loading Dashboard...</Text>
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.headerContainer}>
-        <View style={styles.header}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.title} numberOfLines={2}>Cattle Feed Truck Dashboard</Text>
-            <Text style={styles.subtitle} numberOfLines={1}>Welcome back, {user?.name}</Text>
-          </View>
-          <TouchableOpacity
-            style={styles.profileButton}
-            onPress={() => setShowMenu(!showMenu)}
-          >
-            <Text style={styles.profileIcon} allowFontScaling={false}>👤</Text>
-          </TouchableOpacity>
-        </View>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
-        {showMenu && (
-          <View style={styles.menuDropdown}>
-            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); /* Navigate to Profile */ }}>
-              <Text style={styles.menuText}>Profile</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); /* Navigate to Settings */ }}>
-              <Text style={styles.menuText}>Settings</Text>
-            </TouchableOpacity>
-            <View style={styles.menuDivider} />
-            <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
-              <Text style={[styles.menuText, styles.logoutText]}>Log Out</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
+      {/* Background Gradient */}
+      <LinearGradient
+        colors={[colors.primary[600], colors.primary[400], colors.background.primary]}
+        style={styles.backgroundGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 0.8 }}
+      />
 
-      {/* Stats Cards */}
-      <View style={styles.statsContainer}>
-        <Card style={[styles.statCard, { backgroundColor: '#3b82f6' }] as any}>
-          <View style={styles.statCardContent}>
-            <View>
-              <Text style={styles.statLabel}>Total Drivers</Text>
-              <Text style={styles.statValue}>{stats?.totalDrivers || 0}</Text>
-            </View>
-            <Text style={styles.statEmoji}>👤</Text>
-          </View>
-        </Card>
+      <ScrollView
+        style={styles.scrollView}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />
+        }
+      >
+        <View style={styles.headerSpacer} />
 
-        <Card style={[styles.statCard, { backgroundColor: '#16a34a' }] as any}>
-          <View style={styles.statCardContent}>
-            <View>
-              <Text style={styles.statLabel}>Total Trips</Text>
-              <Text style={styles.statValue}>{stats?.totalTrips || 0}</Text>
-            </View>
-            <Text style={styles.statEmoji}>🚚</Text>
-          </View>
-        </Card>
+        {/* Header Section */}
+        <ScreenHeader
+          title="Cattle Feed Dashboard"
+          subtitle={`Welcome back, ${user?.name}`}
+          transparent
+          titleStyle={{ color: '#fff' }}
+          subtitleStyle={{ color: 'rgba(255, 255, 255, 0.8)' }}
+        />
 
-        <Card style={[styles.statCard, { backgroundColor: '#9333ea' }] as any}>
-          <View style={styles.statCardContent}>
-            <View>
-              <Text style={styles.statLabel}>Completed Trips</Text>
-              <Text style={styles.statValue}>{stats?.completedTrips || 0}</Text>
-            </View>
-            <Text style={styles.statEmoji}>✅</Text>
-          </View>
-        </Card>
-
-        <Card style={[styles.statCard, { backgroundColor: '#ea580c' }] as any}>
-          <View style={styles.statCardContent}>
-            <View>
-              <Text style={styles.statLabel}>Today's Trips</Text>
-              <Text style={styles.statValue}>{stats?.todayTrips || 0}</Text>
-            </View>
-            <Text style={styles.statEmoji}>📅</Text>
-          </View>
-        </Card>
-      </View>
-
-      {/* Quick Actions */}
-      <View style={styles.actionsSection}>
-        <Text style={styles.sectionTitle}>Quick Actions</Text>
-        <View style={styles.actionsGrid}>
-          <Button
-            onPress={() => navigation.navigate('VehicleManagement')}
-            style={styles.actionButton}
-          >
-            🚛 Vehicles
-          </Button>
-          <Button
-            onPress={() => navigation.navigate('DriverManagement')}
-            style={styles.actionButton}
-          >
-            👥 Drivers
-          </Button>
-          <Button
-            onPress={() => navigation.navigate('TripManagement')}
-            style={styles.actionButton}
-          >
-            📊 All Trips
-          </Button>
-        </View>
-      </View>
-
-      {/* Recent Trips */}
-      <Card style={styles.recentTripsCard}>
-        <Text style={styles.sectionTitle}>Recent Trips</Text>
-        {trips.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No trips yet</Text>
-          </View>
-        ) : (
-          <View style={styles.tripsList}>
-            {trips.slice(0, 5).map((trip: any) => (
-              <View key={trip._id} style={styles.tripItem}>
-                <View style={styles.tripItemContent}>
-                  <Text style={styles.tripItemTitle}>
-                    Trip #{trip._id.substring(trip._id.length - 6)}
-                  </Text>
-                  <Text style={styles.tripItemRoute}>
-                    {trip.from || 'N/A'} → {trip.to || 'N/A'}
-                  </Text>
-                  <Text style={styles.tripItemDate}>
-                    {new Date(trip.date || trip.createdAt || '').toLocaleDateString()}
-                  </Text>
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+          {/* Quick Actions Section */}
+          <View style={styles.sectionContainer}>
+            <Text style={styles.sectionTitleLight}>Management Hub</Text>
+            <View style={styles.actionsGrid}>
+              <TouchableOpacity
+                style={styles.actionCard}
+                onPress={() => navigation.navigate('VehicleManagement')}
+              >
+                <View style={[styles.actionIconContainer, { backgroundColor: '#E0F2FE' }]}>
+                  <Text style={styles.actionEmoji}>🚛</Text>
                 </View>
-                <View style={[
-                  styles.statusBadge,
-                  trip.status === 'completed' ? styles.statusCompleted :
-                    trip.status === 'in_transit' ? styles.statusInTransit :
-                      styles.statusPending
-                ]}>
-                  <Text style={[
-                    styles.statusText,
-                    trip.status === 'completed' ? styles.statusCompletedText :
-                      trip.status === 'in_transit' ? styles.statusInTransitText :
-                        styles.statusPendingText
-                  ]}>
-                    {trip.status?.replace('_', ' ').toUpperCase()}
-                  </Text>
+                <Text style={styles.actionLabel}>Vehicles</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.actionCard}
+                onPress={() => navigation.navigate('DriverManagement')}
+              >
+                <View style={[styles.actionIconContainer, { backgroundColor: '#F0F9FF' }]}>
+                  <Text style={styles.actionEmoji}>👥</Text>
                 </View>
+                <Text style={styles.actionLabel}>Drivers</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.actionCard}
+                onPress={() => navigation.navigate('TripManagement')}
+              >
+                <View style={[styles.actionIconContainer, { backgroundColor: '#E0F7FA' }]}>
+                  <Text style={styles.actionEmoji}>📊</Text>
+                </View>
+                <Text style={styles.actionLabel}>Trips</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.actionCard}
+                onPress={() => navigation.navigate('RouteManagement')}
+              >
+                <View style={[styles.actionIconContainer, { backgroundColor: '#F5F5F5' }]}>
+                  <Text style={styles.actionEmoji}>🛣️</Text>
+                </View>
+                <Text style={styles.actionLabel}>Routes</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Recent Trips Section */}
+          <Card style={styles.recentTripsCard}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Recent Trips</Text>
+              <TouchableOpacity onPress={() => navigation.navigate('TripManagement')}>
+                <Text style={styles.viewAllText}>View All</Text>
+              </TouchableOpacity>
+            </View>
+
+            {trips.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyEmoji}>🚚</Text>
+                <Text style={styles.emptyText}>No trips recorded yet</Text>
+                <Button
+                  onPress={() => navigation.navigate('TripManagement')}
+                  variant="outline"
+                  style={styles.emptyButton}
+                >
+                  Create Trip
+                </Button>
               </View>
-            ))}
-          </View>
-        )}
-      </Card>
-    </ScrollView>
+            ) : (
+              <View style={styles.tripsList}>
+                {trips.slice(0, 5).map((trip: any) => (
+                  <TouchableOpacity
+                    key={trip._id}
+                    style={styles.tripItem}
+                    onPress={() => navigation.navigate('TripManagement')} // Or specific trip details if exists
+                  >
+                    <View style={styles.tripIconBox}>
+                      <Text style={styles.tripEmoji}>🔄</Text>
+                    </View>
+                    <View style={styles.tripItemContent}>
+                      <Text style={styles.tripItemTitle}>
+                        Trip #{trip._id.substring(trip._id.length - 6).toUpperCase()}
+                      </Text>
+                      <Text style={styles.tripItemRoute}>
+                        {trip.from || 'Source'} → {trip.to || 'Destination'}
+                      </Text>
+                      <Text style={styles.tripItemDate}>
+                        {new Date(trip.date || trip.createdAt || '').toLocaleDateString('en-IN', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric'
+                        })}
+                      </Text>
+                    </View>
+                    <View style={[
+                      styles.statusBadge,
+                      trip.status === 'completed' ? styles.statusCompleted :
+                        trip.status === 'in_transit' ? styles.statusInTransit :
+                          styles.statusPending
+                    ]}>
+                      <Text style={[
+                        styles.statusText,
+                        trip.status === 'completed' ? styles.statusCompletedText :
+                          trip.status === 'in_transit' ? styles.statusInTransitText :
+                            styles.statusPendingText
+                      ]}>
+                        {trip.status?.replace('_', ' ').toUpperCase() || 'PENDING'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </Card>
+
+          <View style={{ height: 40 }} />
+        </Animated.View>
+      </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: colors.background.primary,
+  },
+  backgroundGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: 350,
+  },
+  scrollView: {
+    flex: 1,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#fff',
   },
-  headerContainer: {
-    zIndex: 10,
-    backgroundColor: '#ffffff',
-    paddingBottom: 8,
-    paddingTop: 40, // Add space for status bar
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+  loadingText: {
+    marginTop: 12,
+    color: colors.primary[600],
+    fontWeight: '500',
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+  headerSpacer: {
+    height: Platform.OS === 'ios' ? 50 : 30,
   },
-  title: {
-    fontSize: 22,
+  sectionContainer: {
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.md,
+  },
+  sectionTitleLight: {
+    fontSize: 18,
     fontWeight: 'bold',
-    color: '#111827',
-    flexShrink: 1, // Allow text to shrink/wrap
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginTop: 4,
-  },
-  profileButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#f3f4f6',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 12, // Add spacing between text and button
-  },
-  profileIcon: {
-    fontSize: 22,
-  },
-  menuDropdown: {
-    position: 'absolute',
-    top: 70,
-    right: 16,
-    backgroundColor: 'white',
-    borderRadius: 8,
-    paddingVertical: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    minWidth: 150,
-  },
-  menuItem: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-  menuText: {
-    fontSize: 16,
-    color: '#374151',
-  },
-  logoutText: {
-    color: '#dc2626',
-    fontWeight: '600',
-  },
-  menuDivider: {
-    height: 1,
-    backgroundColor: '#e5e7eb',
-    marginVertical: 4,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    padding: 16,
-    gap: 12,
-  },
-  statCard: {
-    flex: 1,
-    minWidth: '45%',
-    padding: 16,
-  },
-  statCardContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#ffffff',
-    opacity: 0.9,
-    marginBottom: 8,
-  },
-  statValue: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#ffffff',
-  },
-  statEmoji: {
-    fontSize: 40,
-    opacity: 0.2,
-  },
-  actionsSection: {
-    padding: 16,
-    paddingTop: 0,
+    color: '#fff',
+    marginBottom: spacing.md,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#111827',
-    marginBottom: 16,
+    color: colors.text.primary,
   },
   actionsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    justifyContent: 'space-between',
     gap: 12,
+    marginBottom: spacing.xl,
   },
-  actionButton: {
-    flex: 1,
-    minWidth: '45%',
-    paddingVertical: 16,
+  actionCard: {
+    width: '48%',
+    backgroundColor: '#fff',
+    borderRadius: borderRadius.xl,
+    padding: spacing.md,
+    alignItems: 'center',
+    ...shadows.md,
+  },
+  actionIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  actionEmoji: {
+    fontSize: 24,
+  },
+  actionLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text.primary,
   },
   recentTripsCard: {
-    margin: 16,
-    marginTop: 0,
+    marginHorizontal: spacing.md,
+    padding: spacing.md,
+    borderRadius: borderRadius.xl,
+    backgroundColor: '#fff',
+    ...shadows.lg,
   },
-  tripsList: {
-    gap: 12,
-  },
-  tripItem: {
+  sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 8,
+    marginBottom: spacing.lg,
+  },
+  viewAllText: {
+    color: colors.primary[600],
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  tripsList: {
+    gap: 16,
+  },
+  tripItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border.light,
+  },
+  tripIconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: colors.primary[50],
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  tripEmoji: {
+    fontSize: 20,
   },
   tripItemContent: {
     flex: 1,
   },
   tripItemTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: 'bold',
-    color: '#111827',
-    marginBottom: 4,
+    color: colors.text.primary,
+    marginBottom: 2,
   },
   tripItemRoute: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 4,
+    fontSize: 13,
+    color: colors.text.secondary,
+    marginBottom: 2,
   },
   tripItemDate: {
-    fontSize: 12,
-    color: '#9ca3af',
+    fontSize: 11,
+    color: colors.text.tertiary,
   },
   statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    minWidth: 80,
+    alignItems: 'center',
   },
   statusCompleted: {
-    backgroundColor: '#dcfce7',
+    backgroundColor: colors.success[50],
   },
   statusInTransit: {
-    backgroundColor: '#f3e8ff',
+    backgroundColor: colors.primary[50],
   },
   statusPending: {
-    backgroundColor: '#fef3c7',
+    backgroundColor: colors.warning[50],
   },
   statusText: {
     fontSize: 10,
-    fontWeight: '600',
+    fontWeight: 'bold',
   },
   statusCompletedText: {
-    color: '#16a34a',
+    color: colors.success[600],
   },
   statusInTransitText: {
-    color: '#9333ea',
+    color: colors.primary[600],
   },
   statusPendingText: {
-    color: '#ca8a04',
+    color: colors.warning[600],
   },
   emptyState: {
     alignItems: 'center',
-    paddingVertical: 32,
+    paddingVertical: 40,
+  },
+  emptyEmoji: {
+    fontSize: 48,
+    marginBottom: 16,
+    opacity: 0.3,
   },
   emptyText: {
-    fontSize: 14,
-    color: '#6b7280',
+    fontSize: 16,
+    color: colors.text.tertiary,
+    marginBottom: 20,
+  },
+  emptyButton: {
+    width: 150,
   },
 });
 

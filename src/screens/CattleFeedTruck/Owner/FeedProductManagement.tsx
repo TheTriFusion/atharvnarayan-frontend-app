@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert, FlatList } from 'react-native';
 import { useToast } from '../../../contexts/ToastContext';
+import { useAuth } from '../../../contexts/AuthContext';
 import { cattleFeedTruckAPI } from '../../../utils/api';
 import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
@@ -18,6 +19,7 @@ interface FeedProduct {
 }
 
 const FeedProductManagement: React.FC = () => {
+  const { user } = useAuth();
   const toast = useToast();
   const [products, setProducts] = useState<FeedProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,7 +39,7 @@ const FeedProductManagement: React.FC = () => {
 
   const fetchProducts = async () => {
     try {
-      const response = await cattleFeedTruckAPI.getFeedProducts();
+      const response = await cattleFeedTruckAPI.getFeedProducts(user?.id);
       setProducts(Array.isArray(response) ? response : (Array.isArray(response.data) ? response.data : []));
     } catch (error: any) {
       console.error('Error fetching products:', error);
@@ -50,10 +52,10 @@ const FeedProductManagement: React.FC = () => {
   const handleSubmit = async () => {
     try {
       if (editingProduct) {
-        await cattleFeedTruckAPI.updateFeedProduct(editingProduct._id, formData);
+        await cattleFeedTruckAPI.updateFeedProduct(editingProduct._id, { ...formData, ownerId: user?.id });
         toast.success('Product updated successfully!');
       } else {
-        await cattleFeedTruckAPI.createFeedProduct(formData);
+        await cattleFeedTruckAPI.createFeedProduct({ ...formData, ownerId: user?.id });
         toast.success('Product created successfully!');
       }
       setShowModal(false);

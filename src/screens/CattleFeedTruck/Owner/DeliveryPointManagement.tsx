@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert, FlatList } from 'react-native';
 import { useToast } from '../../../contexts/ToastContext';
+import { useAuth } from '../../../contexts/AuthContext';
 import { cattleFeedTruckAPI } from '../../../utils/api';
 import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
@@ -16,6 +17,7 @@ interface DeliveryPoint {
 }
 
 const DeliveryPointManagement: React.FC = () => {
+  const { user } = useAuth();
   const toast = useToast();
   const [deliveryPoints, setDeliveryPoints] = useState<DeliveryPoint[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,7 +36,7 @@ const DeliveryPointManagement: React.FC = () => {
 
   const fetchDeliveryPoints = async () => {
     try {
-      const response = await cattleFeedTruckAPI.getDeliveryPoints();
+      const response = await cattleFeedTruckAPI.getDeliveryPoints(user?.id);
       setDeliveryPoints(Array.isArray(response) ? response : (Array.isArray(response.data) ? response.data : []));
     } catch (error: any) {
       console.error('Error fetching delivery points:', error);
@@ -47,10 +49,10 @@ const DeliveryPointManagement: React.FC = () => {
   const handleSubmit = async () => {
     try {
       if (editingPoint) {
-        await cattleFeedTruckAPI.updateDeliveryPoint(editingPoint._id, formData);
+        await cattleFeedTruckAPI.updateDeliveryPoint(editingPoint._id, { ...formData, ownerId: user?.id });
         toast.success('Delivery point updated successfully!');
       } else {
-        await cattleFeedTruckAPI.createDeliveryPoint(formData);
+        await cattleFeedTruckAPI.createDeliveryPoint({ ...formData, ownerId: user?.id });
         toast.success('Delivery point created successfully!');
       }
       setShowModal(false);

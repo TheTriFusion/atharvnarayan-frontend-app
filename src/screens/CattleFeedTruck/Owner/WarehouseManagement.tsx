@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert, FlatList } from 'react-native';
 import { useToast } from '../../../contexts/ToastContext';
+import { useAuth } from '../../../contexts/AuthContext';
 import { cattleFeedTruckAPI } from '../../../utils/api';
 import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
@@ -16,6 +17,7 @@ interface Warehouse {
 }
 
 const WarehouseManagement: React.FC = () => {
+  const { user } = useAuth();
   const toast = useToast();
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,7 +36,7 @@ const WarehouseManagement: React.FC = () => {
 
   const fetchWarehouses = async () => {
     try {
-      const response = await cattleFeedTruckAPI.getWarehouses();
+      const response = await cattleFeedTruckAPI.getWarehouses(user?.id);
       setWarehouses(Array.isArray(response) ? response : (Array.isArray(response.data) ? response.data : []));
     } catch (error: any) {
       console.error('Error fetching warehouses:', error);
@@ -47,10 +49,10 @@ const WarehouseManagement: React.FC = () => {
   const handleSubmit = async () => {
     try {
       if (editingWarehouse) {
-        await cattleFeedTruckAPI.updateWarehouse(editingWarehouse._id, formData);
+        await cattleFeedTruckAPI.updateWarehouse(editingWarehouse._id, { ...formData, ownerId: user?.id });
         toast.success('Warehouse updated successfully!');
       } else {
-        await cattleFeedTruckAPI.createWarehouse(formData);
+        await cattleFeedTruckAPI.createWarehouse({ ...formData, ownerId: user?.id });
         toast.success('Warehouse created successfully!');
       }
       setShowModal(false);

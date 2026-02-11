@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Animated, TouchableOpacity, Dimensions } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
+import LinearGradient from 'react-native-linear-gradient';
 import { getMilkTruckTrips, getMilkTruckBMCs, getMilkTruckVehicles, getMilkTruckDrivers, getMilkTruckRoutes } from '../../../utils/storage';
 import Card from '../../../components/common/Card';
-import ScreenHeader from '../../../components/common/ScreenHeader';
 import { colors } from '../../../theme/colors';
 import { spacing, borderRadius, shadows } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
+
+const { width } = Dimensions.get('window');
 
 const TripDetails: React.FC = () => {
   const route = useRoute<any>();
@@ -18,6 +20,9 @@ const TripDetails: React.FC = () => {
   const [bmcs, setBMCs] = useState<any[]>([]);
   const [drivers, setDrivers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Animation values
+  const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (tripId) {
@@ -51,6 +56,13 @@ const TripDetails: React.FC = () => {
       setRoutes(Array.isArray(routesData) ? routesData : []);
       setBMCs(Array.isArray(bmcsData) ? bmcsData : []);
       setDrivers(Array.isArray(driversData) ? driversData : []);
+
+      // Start animation
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }).start();
     } catch (error: any) {
       console.error('Error loading trip details:', error);
     } finally {
@@ -67,18 +79,7 @@ const TripDetails: React.FC = () => {
     );
   }
 
-  if (!trip) {
-    return (
-      <View style={styles.container}>
-        <ScreenHeader title="Trip Details" showBackButton />
-        <View style={styles.content}>
-          <Card variant="elevated">
-            <Text style={styles.errorText}>Trip not found</Text>
-          </Card>
-        </View>
-      </View>
-    );
-  }
+  if (!trip) return null;
 
   const vehicle = vehicles.find(v => (v._id || v.id) === (trip.vehicleId?._id || trip.vehicleId?.id || trip.vehicleId));
   const tripRoute = routes.find(r => (r._id || r.id) === (trip.routeId?._id || trip.routeId?.id || trip.routeId));
@@ -88,269 +89,143 @@ const TripDetails: React.FC = () => {
   const dairy = trip.dairyConfirmation?.totalMilkQuantity || trip.summary?.totalMilk || 0;
   const variance = trip.dairyConfirmation?.variance?.milk || (dairy - collected);
 
-  // Calculate Kg Variances (Using data from backend if available, or manual calc)
-  // Backend provides `variance` object in `dairyConfirmation`
-  const fatKgDiff = trip.dairyConfirmation?.variance?.fat || 0;
-  const snfKgDiff = trip.dairyConfirmation?.variance?.snf || 0;
-
   return (
-    <ScrollView style={styles.container}>
-      <ScreenHeader
-        title="Trip Details"
-        subtitle={`Trip #${((trip._id || trip.id || '').toString().substring((trip._id || trip.id || '').toString().length - 6))}`}
-        showBackButton
-      />
-      <View style={styles.content}>
-        {/* Basic Information */}
-        <Card variant="elevated" style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Basic Information</Text>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Trip ID</Text>
-            <Text style={styles.detailValue}>#{((trip._id || trip.id || '').toString().substring((trip._id || trip.id || '').toString().length - 6))}</Text>
+    <View style={styles.container}>
+      <LinearGradient
+        colors={[colors.primary[700], colors.primary[900]]}
+        style={styles.header}
+      >
+        <View style={styles.headerTop}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+            <Text style={styles.backButtonIcon}>←</Text>
+          </TouchableOpacity>
+          <View style={styles.headerTitleContainer}>
+            <Text style={styles.headerLabel}>TRIP DETAILS</Text>
+            <Text style={styles.headerTitle}>#{((trip._id || trip.id || '').toString().substring((trip._id || trip.id || '').toString().length - 6))}</Text>
           </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Status</Text>
-            <View style={[styles.statusBadge, { backgroundColor: trip.status === 'completed' ? colors.success[100] : trip.status === 'in_progress' ? colors.warning[100] : colors.secondary[200] }]}>
-              <Text style={[styles.statusText, { color: trip.status === 'completed' ? colors.success[700] : trip.status === 'in_progress' ? colors.warning[700] : colors.secondary[700] }]}>
-                {trip.status?.replace('_', ' ').toUpperCase() || 'N/A'}
+          <View style={styles.placeholder} />
+        </View>
+
+        <View style={styles.statusSection}>
+          <View style={[styles.statusBadge, { backgroundColor: trip.status === 'completed' ? colors.success[400] : colors.warning[400] }]}>
+            <Text style={styles.statusBadgeText}>{trip.status?.toUpperCase()?.replace('_', ' ')}</Text>
+          </View>
+          <Text style={styles.tripDateText}>
+            📅 {new Date(trip.date || trip.createdAt || '').toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}
+          </Text>
+        </View>
+      </LinearGradient>
+
+      <Animated.ScrollView
+        style={[styles.content, { opacity: fadeAnim }]}
+        contentContainerStyle={styles.scrollContent}
+      >
+        {/* Main Stats Card */}
+        <Card variant="elevated" style={styles.statsCard}>
+          <View style={styles.statGrid}>
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>COLLECTED</Text>
+              <Text style={styles.statValue}>{collected.toFixed(1)}L</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>DAIRY RCVD</Text>
+              <Text style={styles.statValue}>{dairy.toFixed(1)}L</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>VARIANCE</Text>
+              <Text style={[styles.statValue, { color: variance < 0 ? colors.error[600] : variance > 0 ? colors.success[600] : colors.text.primary }]}>
+                {variance > 0 ? '+' : ''}{variance.toFixed(1)}L
               </Text>
             </View>
           </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Date</Text>
-            <Text style={styles.detailValue}>
-              {new Date(trip.date || trip.createdAt || '').toLocaleDateString()}
-            </Text>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Start Time</Text>
-            <Text style={styles.detailValue}>
-              {trip.startTime ? new Date(trip.startTime).toLocaleString() : 'N/A'}
-            </Text>
-          </View>
-          {trip.endTime && (
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>End Time</Text>
-              <Text style={styles.detailValue}>
-                {new Date(trip.endTime).toLocaleString()}
-              </Text>
-            </View>
-          )}
         </Card>
 
-        {/* Route & Vehicle Information */}
-        <Card variant="elevated" style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Route & Vehicle</Text>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Route</Text>
-            <Text style={styles.detailValue}>{tripRoute?.name || 'N/A'}</Text>
+        {/* Route & Vehicle */}
+        <View style={styles.sectionHeader}>
+          <View style={styles.sectionIndicator} />
+          <Text style={styles.sectionTitle}>ROUTE & SHIPMENT</Text>
+        </View>
+
+        <Card variant="elevated" style={styles.infoCard}>
+          <View style={styles.infoRow}>
+            <View style={styles.infoIconBox}>
+              <Text style={styles.infoIcon}>🗺️</Text>
+            </View>
+            <View style={styles.infoTexts}>
+              <Text style={styles.infoLabelText}>Assigned Route</Text>
+              <Text style={styles.infoValueText}>{tripRoute?.name || 'N/A'}</Text>
+            </View>
           </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Vehicle</Text>
-            <Text style={styles.detailValue}>{vehicle?.registrationNumber || 'N/A'}</Text>
+          <View style={styles.infoRow}>
+            <View style={[styles.infoIconBox, { backgroundColor: colors.secondary[100] }]}>
+              <Text style={styles.infoIcon}>🚛</Text>
+            </View>
+            <View style={styles.infoTexts}>
+              <Text style={styles.infoLabelText}>Vehicle Registration</Text>
+              <Text style={styles.infoValueText}>{vehicle?.registrationNumber || 'N/A'}</Text>
+            </View>
           </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Driver</Text>
-            <Text style={styles.detailValue}>{driver?.name || 'N/A'}</Text>
+          <View style={styles.infoRow}>
+            <View style={[styles.infoIconBox, { backgroundColor: colors.warning[100] }]}>
+              <Text style={styles.infoIcon}>👤</Text>
+            </View>
+            <View style={styles.infoTexts}>
+              <Text style={styles.infoLabelText}>Trip Driver</Text>
+              <Text style={styles.infoValueText}>{driver?.name || 'N/A'}</Text>
+            </View>
           </View>
         </Card>
 
-        {/* Milk Collection Summary */}
-        <Card variant="elevated" style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Milk Collection Summary</Text>
-          <View style={styles.summaryGrid}>
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Collected</Text>
-              <Text style={styles.summaryValue}>{collected.toFixed(2)} L</Text>
-            </View>
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Dairy Received</Text>
-              <Text style={styles.summaryValue}>{dairy.toFixed(2)} L</Text>
-            </View>
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Variance</Text>
-              <Text style={[styles.summaryValue, variance < 0 ? styles.varianceNegative : variance > 0 ? styles.variancePositive : styles.varianceNeutral]}>
-                {variance > 0 ? '+' : ''}{variance !== 0 ? variance.toFixed(2) : '0.00'} L
-              </Text>
-            </View>
-          </View>
-          {trip.dairyConfirmation && (
-            <>
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Avg Fat Content</Text>
-                <Text style={styles.detailValue}>
-                  {trip.dairyConfirmation.averageFatContent?.toFixed(2) || '0.00'}%
-                </Text>
-              </View>
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Avg SNF Content</Text>
-                <Text style={styles.detailValue}>
-                  {trip.dairyConfirmation.averageSnfContent?.toFixed(2) || '0.00'}%
-                </Text>
-              </View>
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Fat Diff (Kg)</Text>
-                <Text style={[styles.detailValue, { fontWeight: 'bold' }, fatKgDiff < 0 ? styles.varianceNegative : fatKgDiff > 0 ? styles.variancePositive : styles.varianceNeutral]}>
-                  {fatKgDiff > 0 ? '+' : ''}{fatKgDiff.toFixed(2)} kg
-                </Text>
-              </View>
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>SNF Diff (Kg)</Text>
-                <Text style={[styles.detailValue, { fontWeight: 'bold' }, snfKgDiff < 0 ? styles.varianceNegative : snfKgDiff > 0 ? styles.variancePositive : styles.varianceNeutral]}>
-                  {snfKgDiff > 0 ? '+' : ''}{snfKgDiff.toFixed(2)} kg
-                </Text>
-              </View>
-            </>
-          )}
-        </Card>
-
-        {/* BMC Entries */}
+        {/* BMC Collections */}
         {bmcEntries.length > 0 && (
-          <Card variant="elevated" style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>BMC Collections ({bmcEntries.length})</Text>
+          <>
+            <View style={styles.sectionHeader}>
+              <View style={[styles.sectionIndicator, { backgroundColor: colors.secondary[500] }]} />
+              <Text style={styles.sectionTitle}>BMC COLLECTION LOGS ({bmcEntries.length})</Text>
+            </View>
+
             {bmcEntries.map((entry: any, index: number) => {
               const bmc = bmcs.find(b => (b._id || b.id) === (entry.bmcId?._id || entry.bmcId?.id || entry.bmcId));
+              const entryQty = entry.collectionData?.milkQuantity || 0;
+              const entryDairyQty = entry.dairyVerifiedData?.milkQuantity || 0;
+              const entryVariance = entryDairyQty - entryQty;
+
               return (
-                <View key={index} style={styles.bmcEntry}>
-                  <View style={styles.bmcEntryHeader}>
+                <Card key={index} variant="elevated" style={styles.bmcCard}>
+                  <View style={styles.bmcHeader}>
                     <Text style={styles.bmcName}>{bmc?.name || 'Unknown BMC'}</Text>
-                    {entry.collectionData?.collectedAt && (
-                      <Text style={styles.bmcTime}>
-                        {new Date(entry.collectionData.collectedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </Text>
-                    )}
+                    <Text style={styles.bmcTime}>
+                      {entry.collectionData?.collectedAt ? new Date(entry.collectionData.collectedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                    </Text>
                   </View>
-
-                  <View style={styles.bmcStatsRow}>
-                    <View style={styles.bmcStatItem}>
+                  <View style={styles.bmcDivider} />
+                  <View style={styles.bmcStatsGrid}>
+                    <View style={styles.bmcInfoBox}>
                       <Text style={styles.bmcStatLabel}>Collected</Text>
-                      <Text style={styles.bmcStatValue}>{entry.collectionData?.milkQuantity?.toFixed(2) || '0.00'} L</Text>
+                      <Text style={styles.bmcStatValue}>{entryQty.toFixed(1)} L</Text>
                     </View>
-
-                    <View style={[styles.vertDivider]} />
-
-                    <View style={styles.bmcStatItem}>
+                    <View style={styles.bmcInfoBox}>
                       <Text style={styles.bmcStatLabel}>Dairy</Text>
-                      <Text style={styles.bmcStatValue}>{entry.dairyVerifiedData?.milkQuantity?.toFixed(2) || '0.00'} L</Text>
+                      <Text style={styles.bmcStatValue}>{entryDairyQty.toFixed(1)} L</Text>
                     </View>
-
-                    <View style={[styles.vertDivider]} />
-
-                    <View style={styles.bmcStatItem}>
+                    <View style={styles.bmcInfoBox}>
                       <Text style={styles.bmcStatLabel}>Diff</Text>
-                      {(() => {
-                        const collected = entry.collectionData?.milkQuantity || 0;
-                        const received = entry.dairyVerifiedData?.milkQuantity || 0;
-                        const diff = received - collected;
-                        return (
-                          <Text style={[styles.bmcStatValue, diff < 0 ? styles.varianceNegative : diff > 0 ? styles.variancePositive : styles.varianceNeutral]}>
-                            {diff > 0 ? '+' : ''}{diff !== 0 ? diff.toFixed(2) : '0.00'} L
-                          </Text>
-                        );
-                      })()}
+                      <Text style={[styles.bmcStatValue, { color: entryVariance < 0 ? colors.error[600] : entryVariance > 0 ? colors.success[600] : colors.text.primary }]}>
+                        {entryVariance > 0 ? '+' : ''}{entryVariance.toFixed(1)} L
+                      </Text>
                     </View>
                   </View>
-
-                  {/* Fat Kg Diff Row */}
-                  <View style={styles.bmcStatsRow}>
-                    <View style={styles.bmcStatItem}>
-                      <Text style={styles.bmcStatLabel}>Collected Fat</Text>
-                      {(() => {
-                        const qty = entry.collectionData?.milkQuantity || 0;
-                        const fat = entry.collectionData?.fatContent || 0;
-                        const fatKg = (qty * fat) / 100;
-                        return <Text style={styles.bmcStatValue}>{fatKg.toFixed(2)} kg</Text>;
-                      })()}
-                    </View>
-
-                    <View style={[styles.vertDivider]} />
-
-                    <View style={styles.bmcStatItem}>
-                      <Text style={styles.bmcStatLabel}>Dairy Fat</Text>
-                      {(() => {
-                        const qty = entry.dairyVerifiedData?.milkQuantity || 0;
-                        const fat = entry.dairyVerifiedData?.fatContent || 0;
-                        const fatKg = (qty * fat) / 100;
-                        return <Text style={styles.bmcStatValue}>{fatKg.toFixed(2)} kg</Text>;
-                      })()}
-                    </View>
-
-                    <View style={[styles.vertDivider]} />
-
-                    <View style={styles.bmcStatItem}>
-                      <Text style={styles.bmcStatLabel}>Fat Diff</Text>
-                      {(() => {
-                        const cQty = entry.collectionData?.milkQuantity || 0;
-                        const cFat = entry.collectionData?.fatContent || 0;
-                        const cFatKg = (cQty * cFat) / 100;
-
-                        const dQty = entry.dairyVerifiedData?.milkQuantity || 0;
-                        const dFat = entry.dairyVerifiedData?.fatContent || 0;
-                        const dFatKg = (dQty * dFat) / 100;
-
-                        const diff = dFatKg - cFatKg;
-                        return (
-                          <Text style={[styles.bmcStatValue, diff < 0 ? styles.varianceNegative : diff > 0 ? styles.variancePositive : styles.varianceNeutral]}>
-                            {diff > 0 ? '+' : ''}{diff !== 0 ? diff.toFixed(2) : '0.00'} kg
-                          </Text>
-                        );
-                      })()}
-                    </View>
-                  </View>
-
-                  {/* SNF Kg Diff Row */}
-                  <View style={styles.bmcStatsRow}>
-                    <View style={styles.bmcStatItem}>
-                      <Text style={styles.bmcStatLabel}>Collected SNF</Text>
-                      {(() => {
-                        const qty = entry.collectionData?.milkQuantity || 0;
-                        const snf = entry.collectionData?.snfContent || 0;
-                        const snfKg = (qty * snf) / 100;
-                        return <Text style={styles.bmcStatValue}>{snfKg.toFixed(2)} kg</Text>;
-                      })()}
-                    </View>
-
-                    <View style={[styles.vertDivider]} />
-
-                    <View style={styles.bmcStatItem}>
-                      <Text style={styles.bmcStatLabel}>Dairy SNF</Text>
-                      {(() => {
-                        const qty = entry.dairyVerifiedData?.milkQuantity || 0;
-                        const snf = entry.dairyVerifiedData?.snfContent || 0;
-                        const snfKg = (qty * snf) / 100;
-                        return <Text style={styles.bmcStatValue}>{snfKg.toFixed(2)} kg</Text>;
-                      })()}
-                    </View>
-
-                    <View style={[styles.vertDivider]} />
-
-                    <View style={styles.bmcStatItem}>
-                      <Text style={styles.bmcStatLabel}>SNF Diff</Text>
-                      {(() => {
-                        const cQty = entry.collectionData?.milkQuantity || 0;
-                        const cSnf = entry.collectionData?.snfContent || 0;
-                        const cSnfKg = (cQty * cSnf) / 100;
-
-                        const dQty = entry.dairyVerifiedData?.milkQuantity || 0;
-                        const dSnf = entry.dairyVerifiedData?.snfContent || 0;
-                        const dSnfKg = (dQty * dSnf) / 100;
-
-                        const diff = dSnfKg - cSnfKg;
-                        return (
-                          <Text style={[styles.bmcStatValue, diff < 0 ? styles.varianceNegative : diff > 0 ? styles.variancePositive : styles.varianceNeutral]}>
-                            {diff > 0 ? '+' : ''}{diff !== 0 ? diff.toFixed(2) : '0.00'} kg
-                          </Text>
-                        );
-                      })()}
-                    </View>
-                  </View>
-                </View>
+                </Card>
               );
             })}
-          </Card>
+          </>
         )}
-      </View>
-    </ScrollView>
+
+        <View style={styles.footerPadding} />
+      </Animated.ScrollView>
+    </View>
   );
 };
 
@@ -366,151 +241,212 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background.secondary,
   },
   loadingText: {
-    fontSize: typography.fontSize.lg,
-    color: colors.text.tertiary,
     marginTop: spacing.md,
-    fontWeight: typography.fontWeight.medium,
+    color: colors.text.tertiary,
+    fontSize: typography.fontSize.sm,
   },
-  content: {
-    padding: spacing.lg,
+  header: {
+    paddingTop: 60,
+    paddingBottom: spacing.xl,
+    paddingHorizontal: spacing.xl,
+    borderBottomLeftRadius: borderRadius['3xl'],
+    borderBottomRightRadius: borderRadius['3xl'],
+    ...shadows.lg,
   },
-  sectionCard: {
-    marginBottom: spacing.lg,
-  },
-  sectionTitle: {
-    fontSize: typography.fontSize.xl,
-    fontWeight: typography.fontWeight.bold,
-    color: colors.text.primary,
-    marginBottom: spacing.md,
-    letterSpacing: -0.3,
-  },
-  detailRow: {
+  headerTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border.light,
+    marginBottom: spacing.lg,
   },
-  detailLabel: {
-    fontSize: typography.fontSize.sm,
-    color: colors.text.secondary,
-    fontWeight: typography.fontWeight.medium,
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  detailValue: {
-    fontSize: typography.fontSize.sm,
-    color: colors.text.primary,
-    fontWeight: typography.fontWeight.semibold,
-    textAlign: 'right',
-    flex: 1,
-    marginLeft: spacing.md,
+  backButtonIcon: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  headerTitleContainer: {
+    alignItems: 'center',
+  },
+  headerLabel: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 10,
+    fontWeight: 'bold',
+    letterSpacing: 2,
+  },
+  headerTitle: {
+    color: '#FFFFFF',
+    fontSize: typography.fontSize.xl,
+    fontWeight: 'black',
+  },
+  placeholder: {
+    width: 40,
+  },
+  statusSection: {
+    alignItems: 'center',
+    marginTop: spacing.md,
   },
   statusBadge: {
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
+    paddingVertical: 4,
     borderRadius: borderRadius.full,
+    marginBottom: spacing.sm,
   },
-  statusText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+  statusBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: 'bold',
+    letterSpacing: 1,
   },
-  summaryGrid: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    marginBottom: spacing.md,
+  tripDateText: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 12,
+    fontWeight: '600',
   },
-  summaryItem: {
+  content: {
     flex: 1,
-    padding: spacing.md,
-    backgroundColor: colors.background.secondary,
-    borderRadius: borderRadius.md,
+  },
+  scrollContent: {
+    padding: spacing.lg,
+  },
+  statsCard: {
+    marginTop: -spacing.xl,
+    marginBottom: spacing.xl,
+    padding: spacing.lg,
+  },
+  statGrid: {
+    flexDirection: 'row',
     alignItems: 'center',
   },
-  summaryLabel: {
-    fontSize: typography.fontSize.xs,
-    color: colors.text.tertiary,
-    marginBottom: spacing.xs,
-    fontWeight: typography.fontWeight.medium,
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
   },
-  summaryValue: {
+  statLabel: {
+    fontSize: 9,
+    fontWeight: typography.fontWeight.black,
+    color: colors.text.tertiary,
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  statValue: {
     fontSize: typography.fontSize.lg,
     fontWeight: typography.fontWeight.bold,
     color: colors.text.primary,
   },
-  variancePositive: {
-    color: colors.success[600],
+  statDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: colors.border.light,
   },
-  varianceNegative: {
-    color: colors.error[600],
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+    marginTop: spacing.sm,
   },
-  varianceNeutral: {
+  sectionIndicator: {
+    width: 4,
+    height: 16,
+    backgroundColor: colors.primary[600],
+    borderRadius: 2,
+    marginRight: spacing.sm,
+  },
+  sectionTitle: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.black,
     color: colors.text.tertiary,
+    letterSpacing: 1.5,
   },
-  bmcEntry: {
+  infoCard: {
     padding: spacing.md,
-    backgroundColor: colors.background.secondary,
-    borderRadius: borderRadius.md,
+    marginBottom: spacing.xl,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.03)',
+  },
+  infoIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: colors.primary[100],
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  infoIcon: {
+    fontSize: 20,
+  },
+  infoTexts: {
+    marginLeft: spacing.md,
+  },
+  infoLabelText: {
+    fontSize: 10,
+    color: colors.text.tertiary,
+    fontWeight: 'bold',
+    textTransform: 'uppercase',
+  },
+  infoValueText: {
+    fontSize: typography.fontSize.base,
+    color: colors.text.primary,
+    fontWeight: 'bold',
+  },
+  bmcCard: {
+    marginBottom: spacing.md,
+    padding: spacing.md,
+  },
+  bmcHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: spacing.sm,
   },
-  bmcEntryHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.xs,
-  },
   bmcName: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.semibold,
+    fontSize: typography.fontSize.base,
+    fontWeight: 'bold',
     color: colors.text.primary,
-    flex: 1,
-  },
-  bmcQuantity: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.bold,
-    color: colors.primary[600],
   },
   bmcTime: {
-    fontSize: typography.fontSize.xs,
+    fontSize: 11,
     color: colors.text.tertiary,
+    fontWeight: '600',
   },
-  errorText: {
-    fontSize: typography.fontSize.base,
-    color: colors.error[600],
-    textAlign: 'center',
-    padding: spacing.lg,
+  bmcDivider: {
+    height: 1,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    marginBottom: spacing.sm,
   },
-  bmcStatsRow: {
+  bmcStatsGrid: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: spacing.xs,
-    borderTopWidth: 1,
-    borderTopColor: colors.border.light,
-    marginTop: spacing.xs,
   },
-  bmcStatItem: {
-    alignItems: 'center',
+  bmcInfoBox: {
     flex: 1,
+    alignItems: 'center',
   },
   bmcStatLabel: {
-    fontSize: typography.fontSize.xs,
+    fontSize: 9,
     color: colors.text.tertiary,
+    fontWeight: '700',
     marginBottom: 2,
-    fontWeight: typography.fontWeight.medium,
   },
   bmcStatValue: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.bold,
+    fontSize: 13,
+    fontWeight: 'bold',
     color: colors.text.primary,
   },
-  vertDivider: {
-    width: 1,
-    height: '80%',
-    backgroundColor: colors.border.light,
+  footerPadding: {
+    height: 100,
   },
 });
 
 export default TripDetails;
-

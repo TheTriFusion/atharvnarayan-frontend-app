@@ -11,13 +11,13 @@ const getApiBaseUrl = () => {
   // For Android emulator, use 10.0.2.2
   // For iOS simulator, use localhost
   // For physical device, use your machine's IP (e.g., 'http://192.168.1.100:5000/api')
-  
+
   if (Platform.OS === 'android') {
     // Android emulator uses 10.0.2.2 to access localhost
-    return 'http://10.0.2.2:5000/api';
+    return 'https://api.thetrifusion.in/api';
   } else {
     // iOS simulator can use localhost
-    return 'http://localhost:5000/api';
+    return 'https://api.thetrifusion.in/api';
   }
 };
 

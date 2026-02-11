@@ -1,11 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert, FlatList, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert, TouchableOpacity, Animated, RefreshControl, StatusBar, Platform, TextInput } from 'react-native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import LinearGradient from 'react-native-linear-gradient';
+import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { cattleFeedTruckAPI } from '../../../utils/api';
 import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
-import Input from '../../../components/common/Input';
-import Modal from '../../../components/common/Modal';
+import ScreenHeader from '../../../components/common/ScreenHeader';
+import { colors } from '../../../theme/colors';
+import { spacing, borderRadius, shadows } from '../../../theme/spacing';
 
 interface Route {
   _id: string;
@@ -16,344 +20,470 @@ interface Route {
 }
 
 const RouteManagement: React.FC = () => {
+  const { user } = useAuth();
+  const navigation = useNavigation<any>();
   const toast = useToast();
   const [routes, setRoutes] = useState<Route[]>([]);
-  const [deliveryPoints, setDeliveryPoints] = useState<any[]>([]);
+  const [filteredRoutes, setFilteredRoutes] = useState<Route[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [editingRoute, setEditingRoute] = useState<Route | null>(null);
-  const [formData, setFormData] = useState({
-    name: '',
-    startPoint: '',
-    deliveryPoints: [] as string[],
-    estimatedDistance: '',
-  });
+  const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Animations
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
+
+  // Refresh when focused
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchRoutes();
+    }, [])
+  );
 
   useEffect(() => {
-    fetchData();
+    // Entrance animations
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        tension: 50,
+        friction: 8,
+        useNativeDriver: true,
+      }),
+    ]).start();
   }, []);
 
-  const fetchData = async () => {
+  useEffect(() => {
+    if (searchQuery.trim() === '') {
+      setFilteredRoutes(routes);
+    } else {
+      const filtered = routes.filter(route =>
+        route.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        route.startPoint?.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+      setFilteredRoutes(filtered);
+    }
+  }, [searchQuery, routes]);
+
+  const fetchRoutes = async () => {
     try {
-      const [routesRes, pointsRes] = await Promise.all([
-        cattleFeedTruckAPI.getRoutes(),
-        cattleFeedTruckAPI.getDeliveryPoints(),
-      ]);
-      setRoutes(Array.isArray(routesRes) ? routesRes : (Array.isArray(routesRes.data) ? routesRes.data : []));
-      setDeliveryPoints(Array.isArray(pointsRes) ? pointsRes : (Array.isArray(pointsRes.data) ? pointsRes.data : []));
+      const response = await cattleFeedTruckAPI.getRoutes(user?.id);
+      const data = Array.isArray(response) ? response : (Array.isArray(response.data) ? response.data : []);
+      setRoutes(data);
+      setFilteredRoutes(data);
     } catch (error: any) {
-      console.error('Error fetching data:', error);
-      toast.error('Error loading data');
+      console.error('Error fetching routes:', error);
+      toast.error('Error loading routes');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  const handleSubmit = async () => {
-    try {
-      if (editingRoute) {
-        await cattleFeedTruckAPI.updateRoute(editingRoute._id, formData);
-        toast.success('Route updated successfully!');
-      } else {
-        await cattleFeedTruckAPI.createRoute(formData);
-        toast.success('Route created successfully!');
-      }
-      setShowModal(false);
-      resetForm();
-      fetchData();
-    } catch (error: any) {
-      console.error('Error saving route:', error);
-      toast.error(error.response?.data?.message || error.message);
-    }
+  const onRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    fetchRoutes();
+  }, []);
+
+  const handleAdd = () => {
+    navigation.navigate('ManageRoute');
   };
 
   const handleEdit = (route: Route) => {
-    setEditingRoute(route);
-    setFormData({
-      name: route.name,
-      startPoint: route.startPoint || '',
-      deliveryPoints: route.deliveryPoints?.map((p: any) => p._id || p) || [],
-      estimatedDistance: route.estimatedDistance || '',
-    });
-    setShowModal(true);
+    navigation.navigate('ManageRoute', { route });
   };
 
-  const handleDelete = async (id: string) => {
-    Alert.alert('Delete Route', 'Are you sure?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await cattleFeedTruckAPI.deleteRoute(id);
-            toast.success('Route deleted successfully!');
-            fetchData();
-          } catch (error: any) {
-            console.error('Error deleting route:', error);
-            toast.error('Error deleting route');
-          }
+  const handleDelete = (id: string) => {
+    Alert.alert(
+      'Delete Route',
+      'Are you sure you want to delete this route?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setLoading(true);
+              await cattleFeedTruckAPI.deleteRoute(id);
+              toast.success('Route deleted successfully!');
+              fetchRoutes();
+            } catch (error: any) {
+              console.error('Error deleting route:', error);
+              toast.error('Error deleting route');
+            } finally {
+              setLoading(false);
+            }
+          },
         },
-      },
-    ]);
+      ]
+    );
   };
 
-  const toggleDeliveryPoint = (pointId: string) => {
-    setFormData(prev => ({
-      ...prev,
-      deliveryPoints: prev.deliveryPoints.includes(pointId)
-        ? prev.deliveryPoints.filter(p => p !== pointId)
-        : [...prev.deliveryPoints, pointId]
-    }));
-  };
-
-  const resetForm = () => {
-    setFormData({ name: '', startPoint: '', deliveryPoints: [], estimatedDistance: '' });
-    setEditingRoute(null);
-  };
+  if (loading && !refreshing && routes.length === 0) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={colors.primary[500]} />
+        <Text style={styles.loadingText}>Loading Routes...</Text>
+      </View>
+    );
+  }
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Route Management</Text>
-        <Button
-          onPress={() => {
-            resetForm();
-            setShowModal(true);
-          }}
-        >
-          + Add Route
-        </Button>
-      </View>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
-      {loading ? (
-        <ActivityIndicator size="large" color="#3b82f6" style={styles.loader} />
-      ) : (
-        <View style={styles.routesGrid}>
-          {routes.length === 0 ? (
-            <Card style={styles.emptyCard}>
-              <Text style={styles.emptyText}>No routes found. Create your first route.</Text>
-            </Card>
-          ) : (
-            routes.map((route) => (
-              <Card key={route._id} style={styles.routeCard}>
-                <Text style={styles.routeName}>{route.name}</Text>
-                <Text style={styles.routeDetail}>
-                  <Text style={styles.routeLabel}>Start:</Text> {route.startPoint || 'N/A'}
-                </Text>
-                <Text style={styles.routeDetail}>
-                  <Text style={styles.routeLabel}>Stops:</Text> {route.deliveryPoints?.length || 0} delivery points
-                </Text>
-                <Text style={styles.routeDetail}>
-                  <Text style={styles.routeLabel}>Distance:</Text> {route.estimatedDistance || 'N/A'} km
-                </Text>
-                <View style={styles.routeActions}>
-                  <Button
-                    onPress={() => handleEdit(route)}
-                    variant="secondary"
-                    style={styles.actionButton}
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    onPress={() => handleDelete(route._id)}
-                    variant="danger"
-                    style={styles.actionButton}
-                  >
-                    Delete
-                  </Button>
-                </View>
-              </Card>
-            ))
+      <LinearGradient
+        colors={[colors.primary[600], colors.primary[400], colors.background.primary]}
+        style={styles.backgroundGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 0.6 }}
+      />
+
+      <View style={styles.headerSpacer} />
+
+      <ScreenHeader
+        title="Route Management"
+        subtitle="Manage distribution paths"
+        transparent
+        titleStyle={{ color: '#fff' }}
+        subtitleStyle={{ color: 'rgba(255, 255, 255, 0.8)' }}
+        rightAction={
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={handleAdd}
+          >
+            <Text style={styles.addButtonText}>+ New</Text>
+          </TouchableOpacity>
+        }
+      />
+
+      <View style={styles.searchContainer}>
+        <View style={styles.searchBar}>
+          <Text style={styles.searchIcon}>🔍</Text>
+          <TextInput
+            placeholder="Search by route name or start point..."
+            placeholderTextColor={colors.text.tertiary}
+            style={styles.searchInput}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          {searchQuery !== '' && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <Text style={styles.clearIcon}>✕</Text>
+            </TouchableOpacity>
           )}
         </View>
-      )}
+      </View>
 
-      {/* Create/Edit Modal */}
-      <Modal
-        visible={showModal}
-        onClose={() => {
-          setShowModal(false);
-          resetForm();
-        }}
-        title={editingRoute ? 'Edit Route' : 'Add Route'}
+      <ScrollView
+        style={styles.scrollView}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />
+        }
       >
-        <ScrollView>
-          <Input
-            label="Route Name *"
-            value={formData.name}
-            onChangeText={(text) => setFormData({ ...formData, name: text })}
-            required
-          />
-          <Input
-            label="Start Point"
-            value={formData.startPoint}
-            onChangeText={(text) => setFormData({ ...formData, startPoint: text })}
-          />
-          <Input
-            label="Estimated Distance (km)"
-            value={formData.estimatedDistance}
-            onChangeText={(text) => setFormData({ ...formData, estimatedDistance: text })}
-            keyboardType="numeric"
-          />
-          <View style={styles.deliveryPointsSection}>
-            <Text style={styles.deliveryPointsLabel}>Delivery Points</Text>
-            <View style={styles.deliveryPointsList}>
-              {deliveryPoints.length === 0 ? (
-                <Text style={styles.noPointsText}>No delivery points available</Text>
-              ) : (
-                deliveryPoints.map(point => (
-                  <TouchableOpacity
-                    key={point._id}
-                    onPress={() => toggleDeliveryPoint(point._id)}
-                    style={[
-                      styles.deliveryPointItem,
-                      formData.deliveryPoints.includes(point._id) && styles.deliveryPointSelected,
-                    ]}
-                  >
-                    <Text style={styles.checkbox}>
-                      {formData.deliveryPoints.includes(point._id) ? '✓' : '○'}
-                    </Text>
-                    <Text style={styles.deliveryPointName}>{point.name}</Text>
-                  </TouchableOpacity>
-                ))
-              )}
+        <Animated.View style={[styles.content, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+          {filteredRoutes.length === 0 ? (
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIconBox}>
+                <Text style={styles.emptyIcon}>🗺️</Text>
+              </View>
+              <Text style={styles.emptyTitle}>No Routes Found</Text>
+              <Text style={styles.emptySubtitle}>
+                {searchQuery ? `No results match "${searchQuery}"` : "You haven't designed any distribution routes yet."}
+              </Text>
+              <Button
+                onPress={() => searchQuery ? setSearchQuery('') : handleAdd()}
+                variant="outline"
+                style={styles.emptyButton}
+              >
+                {searchQuery ? "Clear Search" : "Add Route"}
+              </Button>
             </View>
-          </View>
-          <View style={styles.modalActions}>
-            <Button
-              onPress={() => {
-                setShowModal(false);
-                resetForm();
-              }}
-              variant="secondary"
-              style={styles.modalButton}
-            >
-              Cancel
-            </Button>
-            <Button onPress={handleSubmit} style={styles.modalButton}>
-              {editingRoute ? 'Update' : 'Create'}
-            </Button>
-          </View>
-        </ScrollView>
-      </Modal>
-    </ScrollView>
+          ) : (
+            <View style={styles.list}>
+              {filteredRoutes.map((route) => (
+                <Card key={route._id} style={styles.card}>
+                  <View style={styles.cardTop}>
+                    <View style={styles.iconContainer}>
+                      <Text style={styles.iconEmoji}>🛣️</Text>
+                    </View>
+                    <View style={styles.info}>
+                      <Text style={styles.routeName}>{route.name}</Text>
+                      <View style={styles.startBox}>
+                        <Text style={styles.startLabel}>FROM: </Text>
+                        <Text style={styles.startValue}>{route.startPoint || 'Primary Source'}</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  <View style={styles.divider} />
+
+                  <View style={styles.details}>
+                    <View style={styles.detailItem}>
+                      <Text style={styles.detailLabel}>Stops</Text>
+                      <View style={styles.badge}>
+                        <Text style={styles.badgeText}>{route.deliveryPoints?.length || 0} POINTS</Text>
+                      </View>
+                    </View>
+                    <View style={styles.detailItem}>
+                      <Text style={styles.detailLabel}>Est. Distance</Text>
+                      <Text style={styles.detailValue}>{route.estimatedDistance ? `${route.estimatedDistance} KM` : 'N/A'}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.actions}>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, styles.editBtn]}
+                      onPress={() => handleEdit(route)}
+                    >
+                      <Text style={styles.editBtnText}>Edit Route</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, styles.deleteBtn]}
+                      onPress={() => handleDelete(route._id)}
+                    >
+                      <Text style={styles.deleteBtnText}>Remove</Text>
+                    </TouchableOpacity>
+                  </View>
+                </Card>
+              ))}
+            </View>
+          )}
+          <View style={{ height: 100 }} />
+        </Animated.View>
+      </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: colors.background.primary,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#ffffff',
+  backgroundGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: 300,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#111827',
+  headerSpacer: {
+    height: Platform.OS === 'ios' ? 40 : 20,
   },
-  loader: {
-    marginVertical: 32,
-  },
-  routesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    padding: 16,
-    gap: 16,
-  },
-  routeCard: {
+  scrollView: {
     flex: 1,
-    minWidth: '45%',
+  },
+  content: {
+    padding: spacing.md,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  loadingText: {
+    marginTop: 12,
+    color: colors.primary[600],
+    fontWeight: '500',
+  },
+  addButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  addButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  searchContainer: {
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: borderRadius.lg,
+    paddingHorizontal: 12,
+    height: 48,
+    ...shadows.md,
+  },
+  searchIcon: {
+    fontSize: 16,
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: colors.text.primary,
+  },
+  clearIcon: {
+    fontSize: 14,
+    color: colors.text.tertiary,
+    padding: 4,
+  },
+  list: {
+    gap: 16,
+    marginTop: spacing.sm,
+  },
+  card: {
+    padding: spacing.md,
+    borderRadius: borderRadius.xl,
+    backgroundColor: '#fff',
+    ...shadows.md,
+    borderWidth: 1,
+    borderColor: colors.border.light,
+  },
+  cardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: colors.primary[50],
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  iconEmoji: {
+    fontSize: 24,
+  },
+  info: {
+    flex: 1,
   },
   routeName: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#111827',
-    marginBottom: 8,
-  },
-  routeDetail: {
-    fontSize: 14,
-    color: '#6b7280',
+    color: colors.text.primary,
     marginBottom: 4,
   },
-  routeLabel: {
-    fontWeight: '600',
-    color: '#374151',
-  },
-  routeActions: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 12,
-  },
-  actionButton: {
-    flex: 1,
-    paddingVertical: 6,
-  },
-  emptyCard: {
-    width: '100%',
-  },
-  emptyText: {
-    fontSize: 14,
-    color: '#6b7280',
-    textAlign: 'center',
-    paddingVertical: 32,
-  },
-  deliveryPointsSection: {
-    marginTop: 16,
-  },
-  deliveryPointsLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
-    marginBottom: 8,
-  },
-  deliveryPointsList: {
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 8,
-    padding: 8,
-    maxHeight: 200,
-  },
-  deliveryPointItem: {
+  startBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 8,
-    borderRadius: 4,
-    marginBottom: 4,
   },
-  deliveryPointSelected: {
-    backgroundColor: '#dbeafe',
+  startLabel: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: colors.text.tertiary,
   },
-  checkbox: {
-    fontSize: 16,
-    marginRight: 8,
-    color: '#2563eb',
+  startValue: {
+    fontSize: 13,
+    color: colors.text.secondary,
+    fontWeight: '500',
   },
-  deliveryPointName: {
-    fontSize: 14,
-    color: '#111827',
+  divider: {
+    height: 1,
+    backgroundColor: colors.border.light,
+    marginVertical: 12,
   },
-  noPointsText: {
-    fontSize: 12,
-    color: '#9ca3af',
-    textAlign: 'center',
-    padding: 16,
-  },
-  modalActions: {
+  details: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 12,
-    marginTop: 24,
+    marginBottom: 16,
   },
-  modalButton: {
+  detailItem: {
     flex: 1,
   },
+  detailLabel: {
+    fontSize: 11,
+    color: colors.text.tertiary,
+    textTransform: 'uppercase',
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  detailValue: {
+    fontSize: 14,
+    color: colors.text.primary,
+    fontWeight: 'bold',
+  },
+  badge: {
+    backgroundColor: colors.primary[50],
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
+  badgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.primary[600],
+  },
+  actions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  actionBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  editBtn: {
+    backgroundColor: '#fff',
+    borderColor: colors.primary[600],
+  },
+  editBtnText: {
+    color: colors.primary[600],
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  deleteBtn: {
+    backgroundColor: '#fef2f2',
+    borderColor: '#fee2e2',
+  },
+  deleteBtnText: {
+    color: '#ef4444',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  emptyIconBox: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: colors.background.tertiary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+    opacity: 0.8,
+  },
+  emptyIcon: {
+    fontSize: 40,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: colors.text.primary,
+    marginBottom: 8,
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    color: colors.text.tertiary,
+    textAlign: 'center',
+    marginBottom: 24,
+    paddingHorizontal: 40,
+  },
+  emptyButton: {
+    width: 160,
+  },
 });
+
 
 export default RouteManagement;

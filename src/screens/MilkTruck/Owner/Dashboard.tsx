@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, TouchableOpacity, Animated, StatusBar, Platform } from 'react-native';
+import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useOwner } from '../../../contexts/OwnerContext';
@@ -30,6 +31,15 @@ const MilkTruckOwnerDashboard: React.FC = () => {
   const navigation = useNavigation<any>();
   const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
+  const [quickActionsExpanded, setQuickActionsExpanded] = useState(false);
+
+  // 3D Animation refs
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
+  const quickActionsRotate = useRef(new Animated.Value(0)).current;
+  const driverOverviewScale = useRef(new Animated.Value(1)).current;
+  const notificationsCardScale = useRef(new Animated.Value(1)).current;
+  const tripsCardScale = useRef(new Animated.Value(1)).current;
   const [stats, setStats] = useState({
     totalTrips: 0,
     completedTrips: 0,
@@ -45,13 +55,27 @@ const MilkTruckOwnerDashboard: React.FC = () => {
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [routes, setRoutes] = useState<any[]>([]);
   const [bmcs, setBMCs] = useState<any[]>([]);
-  const [selectedTrip, setSelectedTrip] = useState<any>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadAllData();
     loadNotifications();
+
+    // Entrance animations
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        tension: 50,
+        friction: 8,
+        useNativeDriver: true,
+      }),
+    ]).start();
   }, [selectedOwnerId]);
 
   const loadNotifications = async () => {
@@ -154,668 +178,543 @@ const MilkTruckOwnerDashboard: React.FC = () => {
   }
 
   return (
-    <ScrollView
-      style={styles.container}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={handleRefresh}
-          tintColor={colors.primary[600]}
-        />
-      }
-    >
-      {isSuperAdmin && <OwnerSelector systemType="milkTruck" />}
-      <ScreenHeader
-        title="Owner Dashboard"
-        subtitle="Milk Truck Management"
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+
+      {/* Background Gradient */}
+      <LinearGradient
+        colors={[colors.primary[600], colors.primary[400], colors.background.primary]}
+        style={styles.gradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 0.8 }}
       />
-      <View style={styles.content}>
 
-        {/* Quick Actions */}
-        <Card variant="elevated" style={styles.actionsCard}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
-          <View style={styles.actionsGrid}>
-            <Button
-              onPress={() => navigation.navigate('MilkTruckOwnerBMCs')}
-              variant="primary"
-              style={styles.actionButton}
-            >
-              🏭 BMCs
-            </Button>
-            <Button
-              onPress={() => navigation.navigate('MilkTruckOwnerVehicles')}
-              variant="primary"
-              style={styles.actionButton}
-            >
-              🚛 Vehicles
-            </Button>
-            <Button
-              onPress={() => navigation.navigate('MilkTruckOwnerDrivers')}
-              variant="primary"
-              style={styles.actionButton}
-            >
-              👥 Drivers
-            </Button>
-            <Button
-              onPress={() => navigation.navigate('MilkTruckOwnerRoutes')}
-              variant="primary"
-              style={styles.actionButton}
-            >
-              🛣️ Routes
-            </Button>
-            <Button
-              onPress={() => navigation.navigate('MilkTruckOwnerPricing')}
-              variant="primary"
-              style={styles.actionButton}
-            >
-              💰 Pricing
-            </Button>
-            <Button
-              onPress={() => navigation.navigate('MilkTruckOwnerReports')}
-              variant="primary"
-              style={styles.actionButton}
-            >
-              📊 Reports
-            </Button>
-          </View>
-        </Card>
+      <ScrollView
+        style={styles.scrollContainer}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.primary[600]}
+          />
+        }
+      >
+        {isSuperAdmin && <OwnerSelector systemType="milkTruck" />}
+        <View style={styles.headerSpacer} />
+        <ScreenHeader
+          title="Milk Truck Management"
+          subtitle="Fleet & Operations"
+          transparent
+        />
+        <View style={styles.content}>
 
-        {/* Driver Overview Section */}
-        {drivers.length > 0 && (
-          <Card variant="elevated" style={styles.driverOverviewCard}>
-            <Text style={styles.sectionTitle}>Driver Overview</Text>
-            <View style={styles.driversGrid}>
-              {drivers.map((driver) => {
-                const driverTrips = completedTrips.filter((t: any) => {
-                  const tripDriverId = t.driverId?._id || t.driverId?.id || t.driverId;
-                  const driverId = driver._id || driver.id;
-                  return tripDriverId === driverId;
-                });
-                const activeTrips = completedTrips.filter((t: any) => {
-                  const tripDriverId = t.driverId?._id || t.driverId?.id || t.driverId;
-                  const driverId = driver._id || driver.id;
-                  return tripDriverId === driverId && (t.status === 'in_progress' || t.status === 'in_transit');
-                });
-                const totalTrips = driverTrips.length;
-                const completedCount = driverTrips.filter((t: any) => t.status === 'completed').length;
-
-                return (
-                  <TouchableOpacity
-                    key={driver._id || driver.id}
-                    style={styles.driverCard}
-                    activeOpacity={0.7}
-                    onPress={() => handleDriverClick(driver._id || driver.id)}
-                  >
-                    <View style={styles.driverCardHeader}>
-                      <View style={styles.driverInfo}>
-                        <Text style={styles.driverName}>{driver.name}</Text>
-                        <Text style={styles.driverPhone}>{driver.phoneNumber || 'N/A'}</Text>
+          {/* Quick Actions Accordion */}
+          <Animated.View
+            style={[
+              {
+                opacity: fadeAnim,
+                transform: [
+                  { translateY: slideAnim },
+                  {
+                    rotateX: quickActionsRotate.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: ['0deg', '2deg'],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <Card variant="elevated" style={styles.actionsCard3D}>
+              <TouchableOpacity
+                style={styles.accordionHeader}
+                onPress={() => {
+                  Animated.spring(quickActionsRotate, {
+                    toValue: quickActionsExpanded ? 0 : 1,
+                    tension: 100,
+                    friction: 8,
+                    useNativeDriver: true,
+                  }).start();
+                  setQuickActionsExpanded(!quickActionsExpanded);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.sectionTitle}>Quick Actions</Text>
+                <Animated.Text
+                  style={[
+                    styles.accordionIcon,
+                    {
+                      transform: [
+                        {
+                          rotate: quickActionsRotate.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: ['0deg', '90deg'],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                >
+                  {quickActionsExpanded ? '▼' : '▶'}
+                </Animated.Text>
+              </TouchableOpacity>
+              {quickActionsExpanded && (
+                <Animated.View
+                  style={[
+                    styles.actionsGrid,
+                    {
+                      opacity: quickActionsRotate.interpolate({
+                        inputRange: [0, 0.5, 1],
+                        outputRange: [0, 0.5, 1],
+                      }),
+                    },
+                  ]}
+                >
+                  <View style={styles.actionItem}>
+                    <TouchableOpacity
+                      style={styles.actionButtonCompact}
+                      onPress={() => {
+                        navigation.navigate('MilkTruckOwnerBMCs');
+                        setQuickActionsExpanded(false);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <View style={[styles.actionIconContainer, { backgroundColor: colors.primary[50] }]}>
+                        <Text style={styles.actionIcon}>🏭</Text>
                       </View>
-                      <TouchableOpacity
-                        onPress={() => handleDriverClick(driver._id || driver.id)}
-                        style={styles.viewTripsButton}
+                      <Text style={styles.actionText}>BMCs</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.actionItem}>
+                    <TouchableOpacity
+                      style={styles.actionButtonCompact}
+                      onPress={() => {
+                        navigation.navigate('MilkTruckOwnerVehicles');
+                        setQuickActionsExpanded(false);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <View style={[styles.actionIconContainer, { backgroundColor: '#E0F2FE' }]}>
+                        <Text style={styles.actionIcon}>🚚</Text>
+                      </View>
+                      <Text style={styles.actionText}>Vehicles</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.actionItem}>
+                    <TouchableOpacity
+                      style={styles.actionButtonCompact}
+                      onPress={() => {
+                        navigation.navigate('MilkTruckOwnerDrivers');
+                        setQuickActionsExpanded(false);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <View style={[styles.actionIconContainer, { backgroundColor: '#F0F9FF' }]}>
+                        <Text style={styles.actionIcon}>👥</Text>
+                      </View>
+                      <Text style={styles.actionText}>Drivers</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.actionItem}>
+                    <TouchableOpacity
+                      style={styles.actionButtonCompact}
+                      onPress={() => {
+                        navigation.navigate('MilkTruckOwnerRoutes');
+                        setQuickActionsExpanded(false);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <View style={[styles.actionIconContainer, { backgroundColor: '#E0F7FA' }]}>
+                        <Text style={styles.actionIcon}>🛣️</Text>
+                      </View>
+                      <Text style={styles.actionText}>Routes</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.actionItem}>
+                    <TouchableOpacity
+                      style={styles.actionButtonCompact}
+                      onPress={() => {
+                        navigation.navigate('MilkTruckOwnerPricing');
+                        setQuickActionsExpanded(false);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <View style={[styles.actionIconContainer, { backgroundColor: '#FFF7ED' }]}>
+                        <Text style={styles.actionIcon}>💰</Text>
+                      </View>
+                      <Text style={styles.actionText}>Pricing</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.actionItem}>
+                    <TouchableOpacity
+                      style={[styles.actionButtonCompact, { borderColor: colors.error[100] }]}
+                      onPress={clearNotifications}
+                      activeOpacity={0.8}
+                    >
+                      <View style={[styles.actionIconContainer, { backgroundColor: colors.error[50] }]}>
+                        <Text style={styles.actionIcon}>🗑️</Text>
+                      </View>
+                      <Text style={[styles.actionText, { color: colors.error[600] }]}>Clear Alerts</Text>
+                    </TouchableOpacity>
+                  </View>
+                </Animated.View>
+              )}
+            </Card>
+          </Animated.View>
+
+          {/* Driver Overview Section */}
+          {drivers.length > 0 && (
+            <Animated.View
+              style={[
+                {
+                  opacity: fadeAnim,
+                  transform: [
+                    { translateY: slideAnim },
+                    { scale: driverOverviewScale },
+                    {
+                      rotateY: driverOverviewScale.interpolate({
+                        inputRange: [0.95, 1],
+                        outputRange: ['-2deg', '0deg'],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <Card variant="elevated" style={styles.driverOverviewCard3D}>
+                <Text style={styles.sectionTitle}>Driver Overview</Text>
+                <View style={styles.driversGrid}>
+                  {drivers.map((driver) => {
+                    const driverTrips = completedTrips.filter((t: any) => {
+                      const tripDriverId = t.driverId?._id || t.driverId?.id || t.driverId;
+                      const driverId = driver._id || driver.id;
+                      return tripDriverId === driverId;
+                    });
+                    const activeTrips = completedTrips.filter((t: any) => {
+                      const tripDriverId = t.driverId?._id || t.driverId?.id || t.driverId;
+                      const driverId = driver._id || driver.id;
+                      return tripDriverId === driverId && (t.status === 'in_progress' || t.status === 'in_transit');
+                    });
+                    const totalTrips = driverTrips.length;
+                    const completedCount = driverTrips.filter((t: any) => t.status === 'completed').length;
+
+                    return (
+                      <Animated.View
+                        key={driver._id || driver.id}
+                        style={styles.driverCardContainer}
                       >
-                        <Text style={styles.viewTripsText}>View →</Text>
-                      </TouchableOpacity>
-                    </View>
-                    <View style={styles.driverStats}>
-                      <View style={styles.driverStatItem}>
-                        <Text style={[styles.driverStatValue, { color: colors.primary[600] }]}>{totalTrips}</Text>
-                        <Text style={styles.driverStatLabel}>Total</Text>
-                      </View>
-                      <View style={styles.driverStatItem}>
-                        <Text style={[styles.driverStatValue, { color: colors.success[600] }]}>{completedCount}</Text>
-                        <Text style={styles.driverStatLabel}>Completed</Text>
-                      </View>
-                      <View style={styles.driverStatItem}>
-                        <Text style={[styles.driverStatValue, { color: colors.warning[600] }]}>{activeTrips.length}</Text>
-                        <Text style={styles.driverStatLabel}>Active</Text>
-                      </View>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </Card>
-        )}
+                        <TouchableOpacity
+                          style={styles.driverCard3D}
+                          activeOpacity={0.9}
+                          onPress={() => handleDriverClick(driver._id || driver.id)}
+                        >
+                          <View style={styles.driverCardHeader}>
+                            <View style={styles.avatarContainer}>
+                              <Text style={styles.avatarText}>
+                                {driver.name ? driver.name.split(' ').map((n: any) => n[0]).join('').toUpperCase().substring(0, 2) : 'D'}
+                              </Text>
+                            </View>
+                            <View style={styles.driverInfo}>
+                              <Text style={styles.driverName} numberOfLines={1}>{driver.name}</Text>
+                              <View style={styles.phoneContainer}>
+                                <Text style={styles.phoneIcon}>📞</Text>
+                                <Text style={styles.driverPhone}>{driver.phoneNumber || 'N/A'}</Text>
+                              </View>
+                            </View>
+                            <View style={styles.viewBadge}>
+                              <Text style={styles.viewBadgeText}>Details</Text>
+                            </View>
+                          </View>
+                          <View style={styles.driverStats}>
+                            <View style={styles.driverStatItem}>
+                              <View style={[styles.statIconBox, { backgroundColor: colors.primary[50] }]}>
+                                <Text style={styles.statIconMini}>📊</Text>
+                              </View>
+                              <Text style={[styles.driverStatValue, { color: colors.primary[700] }]}>{totalTrips}</Text>
+                              <Text style={styles.driverStatLabel}>Total</Text>
+                            </View>
+                            <View style={styles.driverStatItem}>
+                              <View style={[styles.statIconBox, { backgroundColor: colors.success[50] }]}>
+                                <Text style={styles.statIconMini}>✅</Text>
+                              </View>
+                              <Text style={[styles.driverStatValue, { color: colors.success[700] }]}>{completedCount}</Text>
+                              <Text style={styles.driverStatLabel}>Done</Text>
+                            </View>
+                            <View style={styles.driverStatItem}>
+                              <View style={[styles.statIconBox, { backgroundColor: colors.warning[50] }]}>
+                                <Text style={styles.statIconMini}>⏳</Text>
+                              </View>
+                              <Text style={[styles.driverStatValue, { color: colors.warning[700] }]}>{activeTrips.length}</Text>
+                              <Text style={styles.driverStatLabel}>Active</Text>
+                            </View>
+                          </View>
+                        </TouchableOpacity>
+                      </Animated.View>
+                    );
+                  })}
+                </View>
+              </Card>
+            </Animated.View>
+          )}
 
-        {/* Real-time Notifications */}
-        <Card variant="elevated" style={styles.notificationsCard}>
-          <View style={styles.notificationsHeader}>
-            <Text style={styles.sectionTitle}>Real-time BMC Collection Updates</Text>
-            {notifications.length > 0 && (
-              <Button onPress={clearNotifications} variant="outline" size="sm">
-                Clear All
-              </Button>
-            )}
-          </View>
-          {notifications.length > 0 ? (
-            <ScrollView style={styles.notificationsList} nestedScrollEnabled>
-              {notifications.map((notif: any) => (
-                <View key={notif.id} style={styles.notificationItem}>
-                  <Text style={styles.notificationMessage}>{notif.message}</Text>
-                  
-                  {/* Handle old notification format (totals) */}
-                  {notif.totals && (
-                    <View style={styles.notificationDetails}>
-                      <Text style={styles.notificationDetailText}>
-                        Total Milk: <Text style={styles.notificationDetailValue}>{notif.totals.totalMilk?.toFixed(2) || '0.00'}L</Text>
-                      </Text>
-                      <Text style={styles.notificationDetailText}>
-                        Total Expenses: <Text style={styles.notificationDetailValue}>₹{notif.totals.totalExpenses?.toFixed(2) || '0.00'}</Text>
-                      </Text>
-                    </View>
-                  )}
+          {/* Real-time Notifications */}
+          <Animated.View
+            style={[
+              {
+                opacity: fadeAnim,
+                transform: [
+                  { translateY: slideAnim },
+                  { scale: notificationsCardScale },
+                ],
+              },
+            ]}
+          >
+            <Card variant="elevated" style={styles.notificationsCard3D}>
+              <View style={styles.notificationsHeader}>
+                <Text style={styles.sectionTitle}>Real-time BMC Collection Updates</Text>
+                {notifications.length > 0 && (
+                  <Button onPress={clearNotifications} variant="outline" size="sm">
+                    Clear All
+                  </Button>
+                )}
+              </View>
+              {notifications.length > 0 ? (
+                <ScrollView style={styles.notificationsList} nestedScrollEnabled>
+                  {notifications.map((notif: any) => (
+                    <View key={notif.id} style={styles.notificationItem}>
+                      <Text style={styles.notificationMessage}>{notif.message}</Text>
 
-                  {/* Handle new notification format (summary) */}
-                  {notif.summary && (
-                    <View style={styles.notificationDetails}>
-                      <Text style={styles.notificationDetailText}>
-                        Total Milk: <Text style={styles.notificationDetailValue}>{notif.summary.totalMilk?.toFixed(2) || '0.00'}L</Text>
-                      </Text>
-                      <Text style={styles.notificationDetailText}>
-                        Total Expenses: <Text style={styles.notificationDetailValue}>₹{notif.summary.totalExpenses?.toFixed(2) || '0.00'}</Text>
-                      </Text>
-                      {notif.summary.finalPrice && (
-                        <Text style={styles.notificationDetailText}>
-                          Final Price: <Text style={styles.notificationDetailValue}>₹{notif.summary.finalPrice?.toFixed(2)}</Text>
-                        </Text>
+                      {/* Handle old notification format (totals) */}
+                      {notif.totals && (
+                        <View style={styles.notificationDetails}>
+                          <Text style={styles.notificationDetailText}>
+                            Total Milk: <Text style={styles.notificationDetailValue}>{notif.totals.totalMilk?.toFixed(2) || '0.00'}L</Text>
+                          </Text>
+                          <Text style={styles.notificationDetailText}>
+                            Total Expenses: <Text style={styles.notificationDetailValue}>₹{notif.totals.totalExpenses?.toFixed(2) || '0.00'}</Text>
+                          </Text>
+                        </View>
                       )}
-                    </View>
-                  )}
 
-                  {notif.variance && (
-                    <View style={styles.varianceContainer}>
-                      <Text style={styles.varianceLabel}>Variance:</Text>
-                      <Text style={[
-                        styles.varianceValue,
-                        { color: notif.variance.milk < 0 ? colors.error[600] : colors.success[600] }
-                      ]}>
-                        {notif.variance.milk > 0 ? '+' : ''}{notif.variance.milk?.toFixed(2) || '0.00'}L
+                      {/* Handle new notification format (summary) */}
+                      {notif.summary && (
+                        <View style={styles.notificationDetails}>
+                          <Text style={styles.notificationDetailText}>
+                            Total Milk: <Text style={styles.notificationDetailValue}>{notif.summary.totalMilk?.toFixed(2) || '0.00'}L</Text>
+                          </Text>
+                          <Text style={styles.notificationDetailText}>
+                            Total Expenses: <Text style={styles.notificationDetailValue}>₹{notif.summary.totalExpenses?.toFixed(2) || '0.00'}</Text>
+                          </Text>
+                          {notif.summary.finalPrice && (
+                            <Text style={styles.notificationDetailText}>
+                              Final Price: <Text style={styles.notificationDetailValue}>₹{notif.summary.finalPrice?.toFixed(2)}</Text>
+                            </Text>
+                          )}
+                        </View>
+                      )}
+
+                      {notif.variance && (
+                        <View style={styles.varianceContainer}>
+                          <Text style={styles.varianceLabel}>Variance:</Text>
+                          <Text style={[
+                            styles.varianceValue,
+                            { color: notif.variance.milk < 0 ? colors.error[600] : colors.success[600] }
+                          ]}>
+                            {notif.variance.milk > 0 ? '+' : ''}{notif.variance.milk?.toFixed(2) || '0.00'}L
+                          </Text>
+                        </View>
+                      )}
+
+                      <Text style={styles.notificationTime}>
+                        {new Date(notif.timestamp).toLocaleString()}
                       </Text>
                     </View>
-                  )}
-
-                  <Text style={styles.notificationTime}>
-                    {new Date(notif.timestamp).toLocaleString()}
+                  ))}
+                </ScrollView>
+              ) : (
+                <View style={styles.emptyNotifications}>
+                  <Text style={styles.emptyNotificationsText}>
+                    No recent updates. BMC collection data will appear here in real-time.
                   </Text>
                 </View>
-              ))}
-            </ScrollView>
-          ) : (
-            <View style={styles.emptyNotifications}>
-              <Text style={styles.emptyNotificationsText}>
-                No recent updates. BMC collection data will appear here in real-time.
-              </Text>
-            </View>
+              )}
+            </Card>
+          </Animated.View>
+
+          {/* Trip Completed History */}
+          {completedTrips.length > 0 && (
+            <Animated.View
+              style={[
+                {
+                  opacity: fadeAnim,
+                  transform: [
+                    { translateY: slideAnim },
+                    { scale: tripsCardScale },
+                  ],
+                },
+              ]}
+            >
+              <Card variant="elevated" style={styles.tripsCard3D}>
+                <Text style={styles.sectionTitle}>Trip Completed History</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <View>
+                    {/* Table Header */}
+                    <View style={styles.tableHeader}>
+                      <Text style={[styles.tableHeaderText, { width: 100 }]}>Date</Text>
+                      <Text style={[styles.tableHeaderText, { width: 80 }]}>Trip ID</Text>
+                      <Text style={[styles.tableHeaderText, { width: 120 }]}>Route / Vehicle</Text>
+                      <Text style={[styles.tableHeaderText, { width: 80 }]}>Collected</Text>
+                      <Text style={[styles.tableHeaderText, { width: 80 }]}>Dairy Rec.</Text>
+                      <Text style={[styles.tableHeaderText, { width: 80 }]}>Variance</Text>
+                      <Text style={[styles.tableHeaderText, { width: 70 }]}>BMCs</Text>
+                      <Text style={[styles.tableHeaderText, { width: 120 }]}>Actions</Text>
+                    </View>
+                    {/* Table Rows */}
+                    {completedTrips.map((trip: any) => {
+                      const vehicleReg = trip.vehicleId?.registrationNumber || vehicles.find((v: any) => (v._id || v.id) === (trip.vehicleId?._id || trip.vehicleId?.id || trip.vehicleId))?.registrationNumber || 'N/A';
+                      const routeName = trip.routeId?.name || routes.find((r: any) => (r._id || r.id) === (trip.routeId?._id || trip.routeId?.id || trip.routeId))?.name || 'N/A';
+
+                      const collected = trip.dairyConfirmation?.collectionTotals?.milk || trip.summary?.totalMilk || 0;
+                      const dairy = trip.dairyConfirmation?.totalMilkQuantity || trip.summary?.totalMilk || 0;
+                      const diff = trip.dairyConfirmation?.variance?.milk || (dairy - collected);
+                      const bmcCount = trip.bmcEntries?.length || 0;
+                      const tripId = trip._id || trip.id || `trip-${Math.random()}`;
+
+                      return (
+                        <View key={tripId} style={styles.tableRow}>
+                          <View style={[styles.tableCell, { width: 100 }]}>
+                            <Text style={styles.tableCellText}>
+                              {new Date(trip.endTime || trip.startTime || trip.createdAt).toLocaleDateString()}
+                            </Text>
+                            <Text style={styles.tableCellSubText}>
+                              {new Date(trip.endTime || trip.startTime || trip.createdAt).toLocaleTimeString()}
+                            </Text>
+                          </View>
+                          <View style={[styles.tableCell, { width: 80 }]}>
+                            <Text style={[styles.tableCellText, styles.monoText]}>
+                              #{tripId ? tripId.toString().substring(tripId.toString().length - 6) : 'N/A'}
+                            </Text>
+                          </View>
+                          <View style={[styles.tableCell, { width: 120 }]}>
+                            <Text style={[styles.tableCellText, styles.boldText]}>{routeName}</Text>
+                            <Text style={styles.tableCellSubText}>{vehicleReg}</Text>
+                          </View>
+                          <View style={[styles.tableCell, { width: 80 }]}>
+                            <Text style={[styles.tableCellText, styles.boldText]}>
+                              {collected.toFixed(2)} L
+                            </Text>
+                          </View>
+                          <View style={[styles.tableCell, { width: 80 }]}>
+                            <Text style={[styles.tableCellText, styles.boldText]}>
+                              {dairy.toFixed(2)} L
+                            </Text>
+                          </View>
+                          <View style={[styles.tableCell, { width: 80 }]}>
+                            <Text style={[
+                              styles.tableCellText,
+                              styles.boldText,
+                              { color: diff < 0 ? colors.error[600] : diff > 0 ? colors.success[600] : colors.text.tertiary }
+                            ]}>
+                              {diff > 0 ? '+' : ''}{diff !== 0 ? diff.toFixed(2) : '-'} L
+                            </Text>
+                          </View>
+                          <View style={[styles.tableCell, { width: 70 }]}>
+                            <Text style={styles.tableCellText}>
+                              {bmcCount} BMC{bmcCount !== 1 ? 's' : ''}
+                            </Text>
+                          </View>
+                          <View style={[styles.tableCell, styles.actionsCell, { width: 120 }]}>
+                            <Button
+                              onPress={() => navigation.navigate('MilkTruckOwnerTripDetails', { tripId })}
+                              variant="outline"
+                              size="sm"
+                              style={styles.viewButton}
+                            >
+                              View
+                            </Button>
+                            <TouchableOpacity
+                              onPress={() => setDeleteConfirm(tripId)}
+                              style={[styles.deleteButton, { borderColor: colors.error[600] }]}
+                            >
+                              <Text style={{ color: colors.error[600], fontSize: typography.fontSize.xs }}>Delete</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </ScrollView>
+              </Card>
+            </Animated.View>
           )}
-        </Card>
-
-        {/* Trip Completed History */}
-        {completedTrips.length > 0 && (
-          <Card variant="elevated" style={styles.tripsCard}>
-            <Text style={styles.sectionTitle}>Trip Completed History</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              <View>
-                {/* Table Header */}
-                <View style={styles.tableHeader}>
-                  <Text style={[styles.tableHeaderText, { width: 100 }]}>Date</Text>
-                  <Text style={[styles.tableHeaderText, { width: 80 }]}>Trip ID</Text>
-                  <Text style={[styles.tableHeaderText, { width: 120 }]}>Route / Vehicle</Text>
-                  <Text style={[styles.tableHeaderText, { width: 80 }]}>Collected</Text>
-                  <Text style={[styles.tableHeaderText, { width: 80 }]}>Dairy Rec.</Text>
-                  <Text style={[styles.tableHeaderText, { width: 80 }]}>Variance</Text>
-                  <Text style={[styles.tableHeaderText, { width: 70 }]}>BMCs</Text>
-                  <Text style={[styles.tableHeaderText, { width: 120 }]}>Actions</Text>
-                </View>
-                {/* Table Rows */}
-                {completedTrips.map((trip: any) => {
-                  const vehicleReg = trip.vehicleId?.registrationNumber || vehicles.find((v: any) => (v._id || v.id) === (trip.vehicleId?._id || trip.vehicleId?.id || trip.vehicleId))?.registrationNumber || 'N/A';
-                  const routeName = trip.routeId?.name || routes.find((r: any) => (r._id || r.id) === (trip.routeId?._id || trip.routeId?.id || trip.routeId))?.name || 'N/A';
-
-                  const collected = trip.dairyConfirmation?.collectionTotals?.milk || trip.summary?.totalMilk || 0;
-                  const dairy = trip.dairyConfirmation?.totalMilkQuantity || trip.summary?.totalMilk || 0;
-                  const diff = trip.dairyConfirmation?.variance?.milk || (dairy - collected);
-                  const bmcCount = trip.bmcEntries?.length || 0;
-                  const tripId = trip._id || trip.id || `trip-${Math.random()}`;
-
-                  return (
-                    <View key={tripId} style={styles.tableRow}>
-                      <View style={[styles.tableCell, { width: 100 }]}>
-                        <Text style={styles.tableCellText}>
-                          {new Date(trip.endTime || trip.startTime || trip.createdAt).toLocaleDateString()}
-                        </Text>
-                        <Text style={styles.tableCellSubText}>
-                          {new Date(trip.endTime || trip.startTime || trip.createdAt).toLocaleTimeString()}
-                        </Text>
-                      </View>
-                      <View style={[styles.tableCell, { width: 80 }]}>
-                        <Text style={[styles.tableCellText, styles.monoText]}>
-                          #{tripId ? tripId.toString().substring(tripId.toString().length - 6) : 'N/A'}
-                        </Text>
-                      </View>
-                      <View style={[styles.tableCell, { width: 120 }]}>
-                        <Text style={[styles.tableCellText, styles.boldText]}>{routeName}</Text>
-                        <Text style={styles.tableCellSubText}>{vehicleReg}</Text>
-                      </View>
-                      <View style={[styles.tableCell, { width: 80 }]}>
-                        <Text style={[styles.tableCellText, styles.boldText]}>
-                          {collected.toFixed(2)} L
-                        </Text>
-                      </View>
-                      <View style={[styles.tableCell, { width: 80 }]}>
-                        <Text style={[styles.tableCellText, styles.boldText]}>
-                          {dairy.toFixed(2)} L
-                        </Text>
-                      </View>
-                      <View style={[styles.tableCell, { width: 80 }]}>
-                        <Text style={[
-                          styles.tableCellText,
-                          styles.boldText,
-                          { color: diff < 0 ? colors.error[600] : diff > 0 ? colors.success[600] : colors.text.tertiary }
-                        ]}>
-                          {diff > 0 ? '+' : ''}{diff !== 0 ? diff.toFixed(2) : '-'} L
-                        </Text>
-                      </View>
-                      <View style={[styles.tableCell, { width: 70 }]}>
-                        <Text style={styles.tableCellText}>
-                          {bmcCount} BMC{bmcCount !== 1 ? 's' : ''}
-                        </Text>
-                      </View>
-                      <View style={[styles.tableCell, styles.actionsCell, { width: 120 }]}>
-                        <Button
-                          onPress={() => setSelectedTrip(trip)}
-                          variant="outline"
-                          size="sm"
-                          style={styles.viewButton}
-                        >
-                          View
-                        </Button>
-                        <TouchableOpacity
-                          onPress={() => setDeleteConfirm(tripId)}
-                          style={[styles.deleteButton, { borderColor: colors.error[600] }]}
-                        >
-                          <Text style={{ color: colors.error[600], fontSize: typography.fontSize.xs }}>Delete</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            </ScrollView>
-          </Card>
-        )}
-      </View>
-
-      {/* Trip Details Modal */}
-      {selectedTrip && (
-        <TripDetailsModal
-          trip={selectedTrip}
-          onClose={() => setSelectedTrip(null)}
-          onUpdate={() => {
-            setSelectedTrip(null);
-            loadAllData();
-          }}
-          bmcs={bmcs}
-          routes={routes}
-          vehicles={vehicles}
-        />
-      )}
-
-      {/* Delete Confirmation Modal */}
-      {deleteConfirm && (
-        <Modal visible={!!deleteConfirm} onClose={() => setDeleteConfirm(null)} title="Delete Trip?">
-          <View style={styles.deleteModalContent}>
-            <Text style={styles.deleteModalText}>
-              Are you sure you want to delete this trip? This action cannot be undone.
-            </Text>
-            <View style={styles.deleteModalActions}>
-              <Button
-                onPress={() => setDeleteConfirm(null)}
-                variant="outline"
-                style={styles.deleteModalButton}
-              >
-                Cancel
-              </Button>
-              <TouchableOpacity
-                onPress={() => handleDeleteTrip(deleteConfirm)}
-                style={[styles.deleteModalButton, { backgroundColor: colors.error[600] }]}
-              >
-                <Text style={{ color: colors.text.inverse, fontWeight: typography.fontWeight.semibold }}>Delete Trip</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
-      )}
-    </ScrollView>
-  );
-};
-
-// Trip Details Modal Component
-const TripDetailsModal: React.FC<{
-  trip: any;
-  onClose: () => void;
-  onUpdate: () => void;
-  bmcs: any[];
-  routes: any[];
-  vehicles: any[];
-}> = ({ trip, onClose, bmcs, routes, vehicles }) => {
-  const [pricing, setPricing] = useState<any>({ basePricePerLiter: 50, fatPricePerPercent: 2, snfPricePerPercent: 1 });
-  const [basePricePerLiter, setBasePricePerLiter] = useState('50');
-  const [fatPricePerPercent, setFatPricePerPercent] = useState('2');
-  const [snfPricePerPercent, setSnfPricePerPercent] = useState('1');
-
-  useEffect(() => {
-    loadPricing();
-  }, []);
-
-  const loadPricing = async () => {
-    try {
-      const pricingData = await getMilkTruckPricing();
-      if (pricingData) {
-        setPricing(pricingData);
-        setBasePricePerLiter(pricingData.basePricePerLiter?.toString() || '50');
-        setFatPricePerPercent(pricingData.fatPricePerPercent?.toString() || '2');
-        setSnfPricePerPercent(pricingData.snfPricePerPercent?.toString() || '1');
-      }
-    } catch (error) {
-      console.error('Error loading pricing:', error);
-    }
-  };
-
-  if (!trip) return null;
-
-  const tripId = trip._id || trip.id;
-  const displayTripId = tripId ? tripId.toString().substring(tripId.toString().length - 6) : 'N/A';
-
-  const vehicle = vehicles.find((v: any) => (v._id || v.id) === (trip.vehicleId?._id || trip.vehicleId?.id || trip.vehicleId));
-  const tripRoute = routes.find((r: any) => (r._id || r.id) === (trip.routeId?._id || trip.routeId?.id || trip.routeId));
-
-  // Calculate dairy-verified (At Dairy) totals
-  const dairyTotals = trip.bmcEntries?.reduce((acc: any, entry: any) => {
-    const data = entry.dairyVerifiedData || entry.collectionData;
-    if (!data) return acc;
-
-    const milk = parseFloat(data.milkQuantity) || 0;
-    const fat = parseFloat(data.fatContent) || 0;
-    const snf = parseFloat(data.snfContent) || 0;
-
-    acc.milk += milk;
-    acc.fatKg += (milk * fat) / 100;
-    acc.snfKg += (milk * snf) / 100;
-
-    return acc;
-  }, { milk: 0, fatKg: 0, snfKg: 0 }) || { milk: 0, fatKg: 0, snfKg: 0 };
-
-  const dairyAvgFat = dairyTotals.milk > 0 ? (dairyTotals.fatKg / dairyTotals.milk) * 100 : 0;
-  const dairyAvgSnf = dairyTotals.milk > 0 ? (dairyTotals.snfKg / dairyTotals.milk) * 100 : 0;
-
-  // Calculate price
-  const calculatePrice = () => {
-    const basePrice = parseFloat(basePricePerLiter) || 0;
-    const fatPrice = parseFloat(fatPricePerPercent) || 0;
-    const snfPrice = parseFloat(snfPricePerPercent) || 0;
-
-    const totalMilkPrice = basePrice * dairyTotals.milk;
-    const totalFatPrice = fatPrice * dairyAvgFat;
-    const totalSnfPrice = snfPrice * dairyAvgSnf;
-
-    return totalMilkPrice + totalFatPrice + totalSnfPrice;
-  };
-
-  const totalPrice = calculatePrice();
-  const bmcEntries = trip.bmcEntries || [];
-
-  return (
-    <Modal visible={!!trip} onClose={onClose} title="🧾 Trip Payment Details">
-      <ScrollView style={styles.modalContent}>
-        {/* Header Info */}
-        <View style={styles.modalHeaderInfo}>
-          <Text style={styles.modalHeaderText}>🆔 {displayTripId}</Text>
-          <Text style={styles.modalHeaderText}>
-            📅 {trip.endTime || trip.startTime ? new Date(trip.endTime || trip.startTime).toLocaleString() : 'N/A'}
-          </Text>
         </View>
-          <Text style={styles.modalSubHeader}>
-            Route: <Text style={styles.paymentBoldText}>{tripRoute?.name || 'Unknown Route'}</Text> • Vehicle: <Text style={styles.paymentBoldText}>{vehicle?.registrationNumber || 'Unknown Vehicle'}</Text>
-          </Text>
 
-        {/* Trip Information */}
-        <Card variant="elevated" style={styles.infoCard}>
-          <Text style={styles.cardTitle}>Trip Information</Text>
-          <View style={styles.infoGrid}>
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>Start Time:</Text>
-              <Text style={styles.infoValue}>{trip.startTime ? new Date(trip.startTime).toLocaleString() : 'N/A'}</Text>
-            </View>
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>End Time:</Text>
-              <Text style={styles.infoValue}>{trip.endTime ? new Date(trip.endTime).toLocaleString() : 'N/A'}</Text>
-            </View>
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>Route:</Text>
-              <Text style={styles.infoValue}>{tripRoute?.name || 'Unknown'}</Text>
-            </View>
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>Vehicle:</Text>
-              <Text style={styles.infoValue}>{vehicle?.registrationNumber || 'Unknown'}</Text>
-            </View>
-          </View>
-        </Card>
 
-        {/* Trip Summary */}
-        {trip.summary && (
-          <Card variant="elevated" style={StyleSheet.flatten([styles.summaryCard, { backgroundColor: colors.success[50] }])}>
-            <Text style={StyleSheet.flatten([styles.cardTitle, { color: colors.success[800] }])}>Trip Summary</Text>
-            <View style={styles.summaryGrid}>
-              <View style={styles.summaryItem}>
-                <Text style={styles.summaryLabel}>Total Milk</Text>
-                <Text style={styles.summaryValue}>{dairyTotals.milk.toFixed(2)} L</Text>
-              </View>
-              <View style={styles.summaryItem}>
-                <Text style={styles.summaryLabel}>Avg Fat</Text>
-                <Text style={styles.summaryValue}>{dairyAvgFat.toFixed(2)}%</Text>
-              </View>
-              <View style={styles.summaryItem}>
-                <Text style={styles.summaryLabel}>Avg SNF</Text>
-                <Text style={styles.summaryValue}>{dairyAvgSnf.toFixed(2)}%</Text>
-              </View>
-              <View style={styles.summaryItem}>
-                <Text style={styles.summaryLabel}>Total Expenses</Text>
-                <Text style={styles.summaryValue}>₹{trip.summary.totalExpenses?.toFixed(2) || '0.00'}</Text>
+
+        {/* Delete Confirmation Modal */}
+        {deleteConfirm && (
+          <Modal visible={!!deleteConfirm} onClose={() => setDeleteConfirm(null)} title="Delete Trip?">
+            <View style={styles.deleteModalContent}>
+              <Text style={styles.deleteModalText}>
+                Are you sure you want to delete this trip? This action cannot be undone.
+              </Text>
+              <View style={styles.deleteModalActions}>
+                <Button
+                  onPress={() => setDeleteConfirm(null)}
+                  variant="outline"
+                  style={styles.deleteModalButton}
+                >
+                  Cancel
+                </Button>
+                <TouchableOpacity
+                  onPress={() => handleDeleteTrip(deleteConfirm)}
+                  style={[styles.deleteModalButton, { backgroundColor: colors.error[600] }]}
+                >
+                  <Text style={{ color: colors.text.inverse, fontWeight: typography.fontWeight.semibold }}>Delete Trip</Text>
+                </TouchableOpacity>
               </View>
             </View>
-          </Card>
+          </Modal>
         )}
-
-        {/* BMC-wise Comparison Table */}
-        {bmcEntries.length > 0 && (
-          <Card variant="elevated" style={styles.comparisonCard}>
-            <View style={styles.comparisonHeader}>
-              <Text style={styles.cardTitle}>📊 BMC-wise Comparison: Collection vs Dairy Verification</Text>
-              <Text style={styles.comparisonSubtitle}>Compare original BMC collection data with dairy-verified values</Text>
-            </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={true}>
-              <View>
-                {/* Table Header */}
-                <View style={styles.tableHeaderRow}>
-                  <Text style={[styles.tableHeaderCell, { width: 100 }]}>BMC Name</Text>
-                  <Text style={[styles.tableHeaderCell, styles.greenHeader, { width: 60 }]}>Milk (L)</Text>
-                  <Text style={[styles.tableHeaderCell, styles.greenHeader, { width: 60 }]}>Fat %</Text>
-                  <Text style={[styles.tableHeaderCell, styles.greenHeader, { width: 60 }]}>SNF %</Text>
-                  <Text style={[styles.tableHeaderCell, styles.purpleHeader, { width: 60 }]}>Milk (L)</Text>
-                  <Text style={[styles.tableHeaderCell, styles.purpleHeader, { width: 60 }]}>Fat %</Text>
-                  <Text style={[styles.tableHeaderCell, styles.purpleHeader, { width: 60 }]}>SNF %</Text>
-                  <Text style={[styles.tableHeaderCell, { width: 60 }]}>Milk (L)</Text>
-                  <Text style={[styles.tableHeaderCell, { width: 60 }]}>Fat %</Text>
-                  <Text style={[styles.tableHeaderCell, { width: 60 }]}>Fat (kg)</Text>
-                  <Text style={[styles.tableHeaderCell, { width: 60 }]}>SNF %</Text>
-                  <Text style={[styles.tableHeaderCell, { width: 60 }]}>SNF (kg)</Text>
-                </View>
-                <View style={styles.tableSubHeaderRow}>
-                  <Text style={[styles.tableSubHeaderCell, { width: 100 }]}>At BMC (Original)</Text>
-                  <Text style={[styles.tableSubHeaderCell, styles.greenHeader, { width: 60 }]}>-</Text>
-                  <Text style={[styles.tableSubHeaderCell, styles.greenHeader, { width: 60 }]}>-</Text>
-                  <Text style={[styles.tableSubHeaderCell, styles.greenHeader, { width: 60 }]}>-</Text>
-                  <Text style={[styles.tableSubHeaderCell, styles.purpleHeader, { width: 60 }]}>At Dairy (Verified)</Text>
-                  <Text style={[styles.tableSubHeaderCell, styles.purpleHeader, { width: 60 }]}>-</Text>
-                  <Text style={[styles.tableSubHeaderCell, styles.purpleHeader, { width: 60 }]}>-</Text>
-                  <Text style={[styles.tableSubHeaderCell, { width: 60 }]}>Variance</Text>
-                  <Text style={[styles.tableSubHeaderCell, { width: 60 }]}>-</Text>
-                  <Text style={[styles.tableSubHeaderCell, { width: 60 }]}>-</Text>
-                  <Text style={[styles.tableSubHeaderCell, { width: 60 }]}>-</Text>
-                  <Text style={[styles.tableSubHeaderCell, { width: 60 }]}>-</Text>
-                </View>
-                {/* Table Rows */}
-                {bmcEntries.map((entry: any, index: number) => {
-                  const entryBmcId = entry.bmcId?._id || entry.bmcId?.id || entry.bmcId;
-                  const bmcName = entry.bmcId?.name || bmcs.find((b: any) => (b._id || b.id) === entryBmcId)?.name || 'Unknown BMC';
-
-                  const atBMC = entry.collectionData;
-                  const atDairy = entry.dairyVerifiedData || entry.collectionData;
-
-                  if (!atBMC) return null;
-
-                  const milkVar = atDairy ? (parseFloat(atDairy.milkQuantity) - parseFloat(atBMC.milkQuantity)) : 0;
-                  const fatVar = atDairy ? (parseFloat(atDairy.fatContent) - parseFloat(atBMC.fatContent)) : 0;
-                  const snfVar = atDairy ? (parseFloat(atDairy.snfContent) - parseFloat(atBMC.snfContent)) : 0;
-
-                  const atBMCFatKg = (parseFloat(atBMC.milkQuantity) * parseFloat(atBMC.fatContent)) / 100;
-                  const atBMCSnfKg = (parseFloat(atBMC.milkQuantity) * parseFloat(atBMC.snfContent)) / 100;
-                  const atDairyFatKg = atDairy ? (parseFloat(atDairy.milkQuantity) * parseFloat(atDairy.fatContent)) / 100 : 0;
-                  const atDairySnfKg = atDairy ? (parseFloat(atDairy.milkQuantity) * parseFloat(atDairy.snfContent)) / 100 : 0;
-                  const fatKgVar = atDairyFatKg - atBMCFatKg;
-                  const snfKgVar = atDairySnfKg - atBMCSnfKg;
-
-                  return (
-                    <View key={index} style={styles.paymentTableRow}>
-                      <Text style={[styles.paymentTableCell, styles.paymentBoldText, { width: 100 }]}>{bmcName}</Text>
-                      <Text style={[styles.paymentTableCell, styles.greenCell, { width: 60 }]}>{parseFloat(atBMC.milkQuantity).toFixed(2)}</Text>
-                      <Text style={[styles.paymentTableCell, styles.greenCell, { width: 60 }]}>{parseFloat(atBMC.fatContent).toFixed(2)}</Text>
-                      <Text style={[styles.paymentTableCell, styles.greenCell, { width: 60 }]}>{parseFloat(atBMC.snfContent).toFixed(2)}</Text>
-                      <Text style={[styles.paymentTableCell, styles.purpleCell, { width: 60 }]}>{atDairy ? parseFloat(atDairy.milkQuantity).toFixed(2) : '-'}</Text>
-                      <Text style={[styles.paymentTableCell, styles.purpleCell, { width: 60 }]}>{atDairy ? parseFloat(atDairy.fatContent).toFixed(2) : '-'}</Text>
-                      <Text style={[styles.paymentTableCell, styles.purpleCell, { width: 60 }]}>{atDairy ? parseFloat(atDairy.snfContent).toFixed(2) : '-'}</Text>
-                      <Text style={[styles.paymentTableCell, { width: 60, color: milkVar < 0 ? colors.error[600] : milkVar > 0 ? colors.success[600] : colors.text.tertiary }]}>
-                        {milkVar !== 0 ? (milkVar > 0 ? '+' : '') + milkVar.toFixed(2) : '0.00'}
-                      </Text>
-                      <Text style={[styles.paymentTableCell, { width: 60, color: fatVar < 0 ? colors.error[600] : fatVar > 0 ? colors.success[600] : colors.text.tertiary }]}>
-                        {fatVar !== 0 ? (fatVar > 0 ? '+' : '') + fatVar.toFixed(2) : '0.00'}
-                      </Text>
-                      <Text style={[styles.paymentTableCell, { width: 60, color: fatKgVar < 0 ? colors.error[600] : fatKgVar > 0 ? colors.success[600] : colors.text.tertiary }]}>
-                        {fatKgVar !== 0 ? (fatKgVar > 0 ? '+' : '') + fatKgVar.toFixed(2) : '0.00'}
-                      </Text>
-                      <Text style={[styles.paymentTableCell, { width: 60, color: snfVar < 0 ? colors.error[600] : snfVar > 0 ? colors.success[600] : colors.text.tertiary }]}>
-                        {snfVar !== 0 ? (snfVar > 0 ? '+' : '') + snfVar.toFixed(2) : '0.00'}
-                      </Text>
-                      <Text style={[styles.paymentTableCell, { width: 60, color: snfKgVar < 0 ? colors.error[600] : snfKgVar > 0 ? colors.success[600] : colors.text.tertiary }]}>
-                        {snfKgVar !== 0 ? (snfKgVar > 0 ? '+' : '') + snfKgVar.toFixed(2) : '0.00'}
-                      </Text>
-                    </View>
-                  );
-                })}
-              </View>
-            </ScrollView>
-            <View style={styles.legendContainer}>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendColor, { backgroundColor: colors.success[100] }]} />
-                <Text style={styles.legendText}>Original Collection at BMC</Text>
-              </View>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendColor, { backgroundColor: colors.secondary[100] }]} />
-                <Text style={styles.legendText}>Dairy Verified Values</Text>
-              </View>
-            </View>
-          </Card>
-        )}
-
-        {/* Payment Calculation */}
-        <Card variant="elevated" style={StyleSheet.flatten([styles.paymentCard, { backgroundColor: colors.warning[50] }])}>
-          <Text style={StyleSheet.flatten([styles.cardTitle, { color: colors.warning[900] }])}>💰 Payment Calculation</Text>
-          <View style={styles.pricingInputs}>
-            <View style={styles.pricingInput}>
-              <Text style={styles.pricingLabel}>Base Price per Liter (₹)</Text>
-              <Input
-                value={basePricePerLiter}
-                onChangeText={setBasePricePerLiter}
-                keyboardType="numeric"
-                placeholder="50"
-              />
-            </View>
-            <View style={styles.pricingInput}>
-              <Text style={styles.pricingLabel}>Fat Price per % (₹)</Text>
-              <Input
-                value={fatPricePerPercent}
-                onChangeText={setFatPricePerPercent}
-                keyboardType="numeric"
-                placeholder="2"
-              />
-            </View>
-            <View style={styles.pricingInput}>
-              <Text style={styles.pricingLabel}>SNF Price per % (₹)</Text>
-              <Input
-                value={snfPricePerPercent}
-                onChangeText={setSnfPricePerPercent}
-                keyboardType="numeric"
-                placeholder="1"
-              />
-            </View>
-          </View>
-          <View style={styles.calculationBreakdown}>
-            <Text style={styles.breakdownTitle}>Calculation Breakdown:</Text>
-            <View style={styles.breakdownRow}>
-              <Text style={styles.breakdownLabel}>Milk Payment:</Text>
-              <Text style={styles.breakdownValue}>
-                ₹{basePricePerLiter} × {dairyTotals.milk.toFixed(2)}L = ₹{(parseFloat(basePricePerLiter) * dairyTotals.milk).toFixed(2)}
-              </Text>
-            </View>
-            <View style={styles.breakdownRow}>
-              <Text style={styles.breakdownLabel}>Fat Bonus:</Text>
-              <Text style={styles.breakdownValue}>
-                ₹{fatPricePerPercent} × {dairyAvgFat.toFixed(2)}% = ₹{(parseFloat(fatPricePerPercent) * dairyAvgFat).toFixed(2)}
-              </Text>
-            </View>
-            <View style={styles.breakdownRow}>
-              <Text style={styles.breakdownLabel}>SNF Bonus:</Text>
-              <Text style={styles.breakdownValue}>
-                ₹{snfPricePerPercent} × {dairyAvgSnf.toFixed(2)}% = ₹{(parseFloat(snfPricePerPercent) * dairyAvgSnf).toFixed(2)}
-              </Text>
-            </View>
-            <View style={styles.totalPaymentRow}>
-              <Text style={styles.totalPaymentLabel}>Total Payment:</Text>
-              <Text style={styles.totalPaymentValue}>₹{totalPrice.toFixed(2)}</Text>
-            </View>
-          </View>
-          <View style={styles.paymentNote}>
-            <Text style={styles.paymentNoteText}>
-              💡 <Text style={styles.paymentBoldText}>Note:</Text> Payment is calculated based on dairy-verified milk quantities (At Dairy values).
-            </Text>
-          </View>
-        </Card>
       </ScrollView>
-    </Modal>
+    </View>
   );
 };
+
+
+
+
+
+
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background.secondary,
+  },
+  gradient: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  scrollContainer: {
+    flex: 1,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: colors.background.secondary,
+    backgroundColor: 'white',
   },
   loadingText: {
-    fontSize: typography.fontSize.lg,
-    color: colors.text.tertiary,
     marginTop: spacing.md,
+    fontSize: typography.fontSize.base,
+    color: colors.primary[600],
     fontWeight: typography.fontWeight.medium,
+  },
+  headerSpacer: {
+    height: Platform.OS === 'ios' ? 40 : 20,
   },
   content: {
     padding: spacing.lg,
+    paddingBottom: spacing.xxl * 2,
   },
   statsContainer: {
     flexDirection: 'row',
@@ -850,26 +749,90 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   actionsCard: {
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
+    overflow: 'hidden',
+  },
+  actionsCard3D: {
+    marginBottom: spacing.xl,
+    padding: spacing.md,
+    backgroundColor: 'white',
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: colors.primary[50],
+    shadowColor: colors.primary[500],
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 15,
+    elevation: 8,
+  },
+  accordionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
   },
   sectionTitle: {
-    fontSize: typography.fontSize.xl,
+    fontSize: typography.fontSize.lg,
     fontWeight: typography.fontWeight.bold,
-    color: colors.text.primary,
-    marginBottom: spacing.md,
-    letterSpacing: -0.3,
+    color: colors.primary[900],
+    marginBottom: spacing.lg,
+  },
+  accordionIcon: {
+    fontSize: typography.fontSize.sm,
+    color: colors.primary[600],
   },
   actionsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.md,
+    justifyContent: 'space-between',
+    paddingTop: spacing.sm,
   },
-  actionButton: {
-    flex: 1,
-    minWidth: '45%',
+  actionItem: {
+    width: '31%',
+    marginBottom: spacing.md,
+  },
+  actionButtonCompact: {
+    backgroundColor: 'white',
+    borderRadius: borderRadius.lg,
+    padding: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.primary[50],
+    ...shadows.sm,
+  },
+  actionIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: borderRadius.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
+  actionIcon: {
+    fontSize: 20,
+  },
+  actionText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.primary[700],
+    textAlign: 'center',
   },
   notificationsCard: {
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  notificationsCard3D: {
+    marginBottom: spacing.xl,
+    padding: spacing.md,
+    backgroundColor: 'white',
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: colors.primary[50],
+    shadowColor: colors.primary[500],
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 15,
+    elevation: 8,
   },
   notificationsHeader: {
     flexDirection: 'row',
@@ -879,24 +842,39 @@ const styles = StyleSheet.create({
   },
   notificationItem: {
     padding: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border.light,
     backgroundColor: colors.background.secondary,
-    borderRadius: borderRadius.sm,
-    marginBottom: spacing.xs,
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing.sm,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.primary[500],
   },
   notificationMessage: {
     fontSize: typography.fontSize.sm,
-    color: colors.text.primary,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[900],
     marginBottom: spacing.xs,
-    fontWeight: typography.fontWeight.medium,
   },
   notificationTime: {
-    fontSize: typography.fontSize.xs,
+    fontSize: typography.fontSize.xs - 1,
     color: colors.text.tertiary,
+    marginTop: spacing.xs,
+    textAlign: 'right',
   },
   tripsCard: {
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  tripsCard3D: {
+    marginBottom: spacing.xl,
+    padding: spacing.md,
+    backgroundColor: 'white',
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: colors.primary[50],
+    shadowColor: colors.primary[500],
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 15,
+    elevation: 8,
   },
   tripItem: {
     padding: spacing.md,
@@ -933,69 +911,118 @@ const styles = StyleSheet.create({
     color: colors.text.tertiary,
   },
   driverOverviewCard: {
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  driverOverviewCard3D: {
+    marginBottom: spacing.xl,
+    padding: spacing.md,
+    backgroundColor: 'white',
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: colors.primary[50],
+    shadowColor: colors.primary[500],
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 15,
+    elevation: 8,
   },
   driversGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.md,
+    paddingTop: spacing.sm,
   },
-  driverCard: {
-    flex: 1,
-    minWidth: '45%',
+  driverCardContainer: {
+    marginBottom: spacing.md,
+  },
+  driverCard3D: {
+    backgroundColor: 'white',
+    borderRadius: borderRadius.lg,
     padding: spacing.md,
-    backgroundColor: colors.background.secondary,
-    borderRadius: borderRadius.md,
     borderWidth: 1,
-    borderColor: colors.border.light,
-    marginBottom: spacing.sm,
+    borderColor: colors.primary[50],
+    ...shadows.md,
   },
   driverCardHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: spacing.sm,
-    paddingBottom: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border.light,
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  avatarContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.primary[100],
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.md,
+  },
+  avatarText: {
+    fontSize: 16,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[700],
   },
   driverInfo: {
     flex: 1,
   },
   driverName: {
     fontSize: typography.fontSize.base,
-    fontWeight: typography.fontWeight.semibold,
-    color: colors.text.primary,
-    marginBottom: spacing.xs,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[900],
+    marginBottom: 2,
+  },
+  phoneContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  phoneIcon: {
+    fontSize: 12,
+    marginRight: 4,
   },
   driverPhone: {
     fontSize: typography.fontSize.xs,
-    color: colors.text.secondary,
+    color: colors.text.tertiary,
   },
-  viewTripsButton: {
+  viewBadge: {
+    backgroundColor: colors.primary[50],
     paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: borderRadius.full,
   },
-  viewTripsText: {
-    fontSize: typography.fontSize.xs,
+  viewBadgeText: {
+    fontSize: 10,
+    fontWeight: typography.fontWeight.bold,
     color: colors.primary[600],
-    fontWeight: typography.fontWeight.medium,
+    textTransform: 'uppercase',
   },
   driverStats: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginTop: spacing.sm,
+    justifyContent: 'space-between',
+    backgroundColor: colors.background.secondary,
+    borderRadius: borderRadius.md,
+    padding: spacing.sm,
   },
   driverStatItem: {
     alignItems: 'center',
+    flex: 1,
+  },
+  statIconBox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  statIconMini: {
+    fontSize: 12,
   },
   driverStatValue: {
-    fontSize: typography.fontSize.lg,
+    fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.bold,
-    marginBottom: spacing.xs,
   },
   driverStatLabel: {
-    fontSize: typography.fontSize.xs,
+    fontSize: 10,
     color: colors.text.tertiary,
+    textTransform: 'uppercase',
+    marginTop: 2,
   },
   notificationsList: {
     maxHeight: 400,
@@ -1043,41 +1070,49 @@ const styles = StyleSheet.create({
   },
   tableHeader: {
     flexDirection: 'row',
-    backgroundColor: colors.background.secondary,
-    paddingVertical: spacing.md,
+    backgroundColor: colors.primary[50],
+    paddingVertical: spacing.sm,
     paddingHorizontal: spacing.sm,
-    borderBottomWidth: 2,
-    borderBottomColor: colors.border.light,
+    borderRadius: borderRadius.md,
+    marginBottom: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.primary[100],
   },
   tableHeaderText: {
+    color: colors.primary[900],
     fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.semibold,
-    color: colors.text.secondary,
+    fontWeight: typography.fontWeight.bold,
+    textAlign: 'center',
+    paddingHorizontal: 4,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   tableRow: {
     flexDirection: 'row',
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm,
     paddingHorizontal: spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border.light,
-    backgroundColor: colors.background.primary,
+    borderBottomColor: colors.primary[50],
+    backgroundColor: 'white',
   },
   tableCell: {
     paddingHorizontal: spacing.xs,
+    justifyContent: 'center',
   },
   tableCellText: {
-    fontSize: typography.fontSize.sm,
-    color: colors.text.primary,
-    marginBottom: spacing.xs,
+    fontSize: typography.fontSize.xs,
+    color: colors.primary[800],
+    textAlign: 'center',
+    fontWeight: typography.fontWeight.medium,
   },
   tableCellSubText: {
-    fontSize: typography.fontSize.xs,
+    fontSize: 10,
     color: colors.text.tertiary,
+    textAlign: 'center',
+    marginTop: 2,
   },
   monoText: {
-    fontFamily: 'monospace',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    fontWeight: typography.fontWeight.bold,
   },
   boldText: {
     fontWeight: typography.fontWeight.semibold,
@@ -1183,7 +1218,8 @@ const styles = StyleSheet.create({
   },
   modalHeaderText: {
     fontSize: typography.fontSize.sm,
-    color: colors.text.secondary,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[700],
   },
   modalSubHeader: {
     fontSize: typography.fontSize.sm,

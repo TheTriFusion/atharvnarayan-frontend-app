@@ -1,13 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, RefreshControl } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, RefreshControl, Animated, StatusBar, Platform } from 'react-native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import LinearGradient from 'react-native-linear-gradient';
+import { useAuth } from '../../../contexts/AuthContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useToast } from '../../../contexts/ToastContext';
 import { cattleFeedTruckAPI } from '../../../utils/api';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
-import Input from '../../../components/common/Input';
-import Modal from '../../../components/common/Modal';
-import Select from '../../../components/common/Select';
+import ScreenHeader from '../../../components/common/ScreenHeader';
+import { colors } from '../../../theme/colors';
+import { spacing, borderRadius, shadows } from '../../../theme/spacing';
 
 interface Trip {
   _id: string;
@@ -27,48 +30,67 @@ interface Trip {
 }
 
 const TripManagement: React.FC = () => {
+  const { user } = useAuth();
+  const navigation = useNavigation<any>();
   const toast = useToast();
   const [trips, setTrips] = useState<Trip[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState('all');
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
   const [expandedTrips, setExpandedTrips] = useState<Set<string>>(new Set());
-  const [drivers, setDrivers] = useState<any[]>([]);
-  const [vehicles, setVehicles] = useState<any[]>([]);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [notifications, setNotifications] = useState<any[]>([]);
-  const [formData, setFormData] = useState({
-    date: new Date().toISOString().split('T')[0],
-    from: '',
-    to: '',
-    presentKm: '',
-    kmAverage: '',
-    distance: '',
-    quantity: '',
-    oilDiesel: '',
-    driverId: '',
-    vehicleId: '',
-    helper: '',
-    other: '',
-    advancePayment: '',
-  });
+
+  // Animations
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchData();
+      loadNotifications();
+    }, [])
+  );
 
   useEffect(() => {
-    fetchData();
-    loadNotifications();
+    // Entrance animations
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        tension: 50,
+        friction: 8,
+        useNativeDriver: true,
+      }),
+    ]).start();
 
+    // Pulse animation for live indicator
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 0.4, duration: 1000, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
+      ])
+    );
+    if (autoRefresh) pulse.start();
+    else pulse.stop();
+
+    return () => pulse.stop();
+  }, [autoRefresh]);
+
+  useEffect(() => {
     let interval: ReturnType<typeof setInterval> | undefined;
     if (autoRefresh) {
       interval = setInterval(() => {
-        fetchData();
+        fetchData(true);
         loadNotifications();
       }, 10000);
     }
-
     return () => {
       if (interval) clearInterval(interval);
     };
@@ -78,7 +100,7 @@ const TripManagement: React.FC = () => {
     try {
       const notifsJson = await AsyncStorage.getItem('cattleFeedTruckOwnerNotifications');
       const notifs = notifsJson ? JSON.parse(notifsJson) : [];
-      setNotifications(notifs.slice(0, 20));
+      setNotifications(notifs.slice(0, 10)); // Keep only latest 10 for performance
     } catch (error) {
       console.error('Error loading notifications:', error);
     }
@@ -88,91 +110,44 @@ const TripManagement: React.FC = () => {
     try {
       await AsyncStorage.removeItem('cattleFeedTruckOwnerNotifications');
       setNotifications([]);
-      toast.success('Notifications cleared');
+      toast.success('Live alerts cleared');
     } catch (error) {
       console.error('Error clearing notifications:', error);
     }
   };
 
-  const fetchData = async () => {
+  const fetchData = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
-      const [tripsRes, driversRes, vehiclesRes] = await Promise.all([
-        cattleFeedTruckAPI.getTrips(),
-        cattleFeedTruckAPI.getDrivers(),
-        cattleFeedTruckAPI.getVehicles(),
-      ]);
-      setTrips(Array.isArray(tripsRes) ? tripsRes : (Array.isArray(tripsRes.data) ? tripsRes.data : []));
-      setDrivers(Array.isArray(driversRes) ? driversRes : (Array.isArray(driversRes.data) ? driversRes.data : []));
-      setVehicles(Array.isArray(vehiclesRes) ? vehiclesRes : (Array.isArray(vehiclesRes.data) ? vehiclesRes.data : []));
+      const response = await cattleFeedTruckAPI.getTrips(user?.id);
+      const data = Array.isArray(response) ? response : (Array.isArray(response.data) ? response.data : []);
+      setTrips(data);
     } catch (error: any) {
-      console.error('Error fetching data:', error);
-      toast.error('Error loading data');
+      console.error('Error fetching trips:', error);
+      if (!silent) toast.error('Connection to fleet lost');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  const handleCreateTrip = async () => {
-    try {
-      const tripData = {
-        ...formData,
-        status: 'pending',
-        tripDetails: {
-          presentKm: parseFloat(formData.presentKm) || 0,
-          kmAverage: parseFloat(formData.kmAverage) || 0,
-          distance: parseFloat(formData.distance) || 0,
-          totalBags: parseFloat(formData.quantity) || 0,
-          oilDiesel: parseFloat(formData.oilDiesel) || 0,
-          helper: formData.helper,
-          other: formData.other,
-          advancePayment: parseFloat(formData.advancePayment) || 0,
-        },
-      };
+  const onRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    fetchData();
+  }, []);
 
-      await cattleFeedTruckAPI.createTrip(tripData);
-      setShowCreateModal(false);
-      resetForm();
-      fetchData();
-      toast.success('Trip created successfully!');
-    } catch (error: any) {
-      console.error('Error creating trip:', error);
-      toast.error(error.response?.data?.message || error.message);
-    }
+  const handleCreate = () => {
+    navigation.navigate('ManageTrip');
   };
 
-  const resetForm = () => {
-    setFormData({
-      date: new Date().toISOString().split('T')[0],
-      from: '',
-      to: '',
-      presentKm: '',
-      kmAverage: '',
-      distance: '',
-      quantity: '',
-      oilDiesel: '',
-      driverId: '',
-      vehicleId: '',
-      helper: '',
-      other: '',
-      advancePayment: '',
-    });
-  };
-
-  const getStatusColor = (status?: string) => {
+  const getStatusInfo = (status?: string) => {
     switch (status) {
-      case 'pending':
-        return { bg: '#fef3c7', text: '#ca8a04' };
-      case 'loading':
-        return { bg: '#dbeafe', text: '#2563eb' };
-      case 'in_transit':
-        return { bg: '#f3e8ff', text: '#9333ea' };
-      case 'completed':
-        return { bg: '#dcfce7', text: '#16a34a' };
-      case 'cancelled':
-        return { bg: '#fee2e2', text: '#dc2626' };
-      default:
-        return { bg: '#f3f4f6', text: '#374151' };
+      case 'pending': return { label: 'O-ASSIGNED', color: '#B45309', bg: '#FEF3C7', icon: '⏳' };
+      case 'loading': return { label: 'LOADING', color: '#1D4ED8', bg: '#DBEAFE', icon: '🏗️' };
+      case 'in_transit': return { label: 'IN TRANSIT', color: '#7E22CE', bg: '#F3E8FF', icon: '🚛' };
+      case 'completed': return { label: 'FINISHED', color: '#15803D', bg: '#DCFCE7', icon: '✅' };
+      case 'cancelled': return { label: 'CANCELLED', color: '#B91C1C', bg: '#FEE2E2', icon: '❌' };
+      default: return { label: status?.toUpperCase() || 'UNKNOWN', color: '#374151', bg: '#F3F4F6', icon: '❓' };
     }
   };
 
@@ -182,10 +157,6 @@ const TripManagement: React.FC = () => {
         const actualDelivery = entry.actualDelivery;
         if (actualDelivery && actualDelivery.feedItems) {
           return sum + actualDelivery.feedItems.reduce((itemSum: number, item: any) => itemSum + (item.quantity || 0), 0);
-        }
-        const plannedDelivery = entry.plannedDelivery;
-        if (plannedDelivery && plannedDelivery.feedItems) {
-          return sum + plannedDelivery.feedItems.reduce((itemSum: number, item: any) => itemSum + (item.quantity || 0), 0);
         }
         return sum;
       }, 0);
@@ -200,11 +171,8 @@ const TripManagement: React.FC = () => {
   const toggleTripExpansion = (tripId: string) => {
     setExpandedTrips(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(tripId)) {
-        newSet.delete(tripId);
-      } else {
-        newSet.add(tripId);
-      }
+      if (newSet.has(tripId)) newSet.delete(tripId);
+      else newSet.add(tripId);
       return newSet;
     });
   };
@@ -214,706 +182,642 @@ const TripManagement: React.FC = () => {
     return trip.status === filter;
   });
 
-  return (
-    <ScrollView
-      style={styles.container}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={fetchData} />
-      }
+  const StatusChip = ({ status, active }: { status: string, active: boolean }) => (
+    <TouchableOpacity
+      onPress={() => setFilter(status)}
+      style={[
+        styles.filterChip,
+        active && styles.filterChipActive,
+        active && { backgroundColor: getStatusInfo(status === 'all' ? 'completed' : status).bg }
+      ]}
     >
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>Trip Management</Text>
-          <Text style={styles.subtitle}>
-            {autoRefresh ? '🟢 Live Updates Enabled' : '⚪ Live Updates Disabled'}
+      <Text style={[styles.filterChipText, active && { color: getStatusInfo(status === 'all' ? 'completed' : status).color }]}>
+        {status.replace('_', ' ').toUpperCase()}
+      </Text>
+    </TouchableOpacity>
+  );
+
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+
+      <LinearGradient
+        colors={[colors.primary[600], colors.primary[400], colors.background.primary]}
+        style={styles.backgroundGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 0.6 }}
+      />
+
+      <View style={styles.headerSpacer} />
+
+      <ScreenHeader
+        title="Fleet Operations"
+        subtitle="Live tracking and dispatcher"
+        transparent
+        titleStyle={{ color: '#fff' }}
+        subtitleStyle={{ color: 'rgba(255, 255, 255, 0.8)' }}
+        rightAction={
+          <View style={styles.headerRow}>
+            <TouchableOpacity
+              style={[styles.headerIconBtn, !autoRefresh && styles.headerIconBtnOff]}
+              onPress={() => setAutoRefresh(!autoRefresh)}
+            >
+              <Animated.View style={{ opacity: pulseAnim }}>
+                <Text style={styles.headerIconText}>{autoRefresh ? '📡' : '💤'}</Text>
+              </Animated.View>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.headerNewBtn}
+              onPress={handleCreate}
+            >
+              <Text style={styles.headerNewBtnText}>+ New Load</Text>
+            </TouchableOpacity>
+          </View>
+        }
+      />
+
+      {/* Persistent Live Indicator */}
+      <View style={styles.liveToolbar}>
+        <View style={styles.liveIndicator}>
+          <Animated.View style={[styles.liveDot, { opacity: pulseAnim }]} />
+          <Text style={styles.liveLabel}>
+            {autoRefresh ? "SYSTEM ONLINE - SYNCING" : "LIVE FEED PAUSED"}
           </Text>
         </View>
-        <View style={styles.headerButtons}>
-          <Button
-            onPress={() => setShowNotifications(!showNotifications)}
-            variant="secondary"
-            style={styles.headerButton}
-          >
-            🔔 {notifications.length > 0 && `(${notifications.length})`}
-          </Button>
-          <Button
-            onPress={() => setAutoRefresh(!autoRefresh)}
-            variant={autoRefresh ? 'success' : 'secondary'}
-            style={styles.headerButton}
-          >
-            {autoRefresh ? '⏸️ Pause' : '▶️ Enable'}
-          </Button>
-          <Button onPress={fetchData} variant="secondary" style={styles.headerButton}>
-            🔄
-          </Button>
-          <Button onPress={() => setShowCreateModal(true)} style={styles.headerButton}>
-            🚀 New
-          </Button>
-        </View>
+        <TouchableOpacity onPress={() => setShowNotifications(!showNotifications)}>
+          <Text style={styles.alertsLabel}>
+            ALERTS {notifications.length > 0 ? `(${notifications.length})` : ''} {showNotifications ? '▼' : '▲'}
+          </Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Filter */}
-      <View style={styles.filterContainer}>
-        <Select
-          label="Filter by Status"
-          value={filter}
-          onChange={(value) => setFilter(value as string)}
-          options={[
-            { label: 'All Trips', value: 'all' },
-            { label: 'Pending', value: 'pending' },
-            { label: 'Loading', value: 'loading' },
-            { label: 'In Transit', value: 'in_transit' },
-            { label: 'Completed', value: 'completed' },
-            { label: 'Cancelled', value: 'cancelled' },
-          ]}
-        />
-      </View>
-
-      {/* Notifications Panel */}
-      {showNotifications && (
-        <Card style={styles.notificationsCard}>
-          <View style={styles.notificationsHeader}>
-            <Text style={styles.sectionTitle}>Delivery Notifications</Text>
-            <Button onPress={clearNotifications} variant="secondary" style={styles.smallButton}>
-              Clear All
-            </Button>
-          </View>
-          {notifications.length === 0 ? (
-            <Text style={styles.emptyText}>No notifications yet</Text>
-          ) : (
-            <View style={styles.notificationsList}>
-              {notifications.map((notif) => (
-                <View
-                  key={notif.id}
-                  style={[
-                    styles.notificationItem,
-                    notif.type === 'trip_completed' ? styles.notificationCompleted : styles.notificationDelivery,
-                  ]}
-                >
-                  <Text style={styles.notificationMessage}>{notif.message}</Text>
-                  <Text style={styles.notificationMeta}>
-                    Driver: {notif.driverName} | Trip #{notif.tripNumber}
-                  </Text>
-                  {notif.location && notif.bags > 0 && (
-                    <Text style={styles.notificationMeta}>
-                      Location: {notif.location} | {notif.bags} bags
-                    </Text>
-                  )}
-                  <Text style={styles.notificationTime}>
-                    {new Date(notif.timestamp).toLocaleTimeString()}
-                  </Text>
+      <ScrollView
+        style={styles.scrollView}
+        stickyHeaderIndices={[1]}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />
+        }
+        showsVerticalScrollIndicator={false}
+      >
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+          {/* Notifications Panel */}
+          {showNotifications && (
+            <View style={styles.notificationsWrapper}>
+              <Card style={styles.notificationsCard}>
+                <View style={styles.notifHeader}>
+                  <Text style={styles.notifTitle}>Dispatch Intelligence</Text>
+                  <TouchableOpacity onPress={clearNotifications}>
+                    <Text style={styles.notifClear}>Clear Feed</Text>
+                  </TouchableOpacity>
                 </View>
-              ))}
+                {notifications.length === 0 ? (
+                  <View style={styles.notifEmpty}>
+                    <Text style={styles.notifEmptyText}>No recent alerts from the field</Text>
+                  </View>
+                ) : (
+                  notifications.map((notif, idx) => (
+                    <View key={notif.id || idx} style={styles.notifItem}>
+                      <View style={styles.notifIcon}>
+                        <Text style={{ fontSize: 14 }}>{notif.type === 'trip_completed' ? '🏆' : '📦'}</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.notifMsg}>{notif.message}</Text>
+                        <Text style={styles.notifTime}>{new Date(notif.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • Trip #{notif.tripNumber}</Text>
+                      </View>
+                    </View>
+                  ))
+                )}
+              </Card>
             </View>
           )}
-        </Card>
-      )}
 
-      {/* Trips List */}
-      {loading ? (
-        <ActivityIndicator size="large" color="#3b82f6" style={styles.loader} />
-      ) : (
-        <Card style={styles.tripsCard}>
-          {filteredTrips.length === 0 ? (
+          {/* Filters Bar */}
+          <HorizontalGrid style={styles.filtersBar}>
+            <StatusChip status="all" active={filter === 'all'} />
+            <StatusChip status="pending" active={filter === 'pending'} />
+            <StatusChip status="loading" active={filter === 'loading'} />
+            <StatusChip status="in_transit" active={filter === 'in_transit'} />
+            <StatusChip status="completed" active={filter === 'completed'} />
+          </HorizontalGrid>
+
+          {loading && !refreshing && (
+            <View style={styles.centralLoader}>
+              <ActivityIndicator size="large" color={colors.primary[500]} />
+            </View>
+          )}
+
+          {!loading && filteredTrips.length === 0 ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>
-                No trips found{filter !== 'all' ? ` with status "${filter}"` : ''}. Click "New" to create one.
-              </Text>
+              <Text style={styles.emptyEmoji}>🚛💨</Text>
+              <Text style={styles.emptyTitle}>Fleet Idle</Text>
+              <Text style={styles.emptySub}>No active shipments found for this status.</Text>
+              <Button onPress={handleCreate} style={styles.emptyBtn}>Start Dispatch</Button>
             </View>
           ) : (
-            <View style={styles.tripsList}>
+            <View style={styles.tripList}>
               {filteredTrips.map((trip) => {
-                const deliveredBags = calculateDeliveredBags(trip);
-                const totalBags = getTotalBags(trip);
-                const deliveryCount = trip.deliveryEntries?.length || 0;
+                const s = getStatusInfo(trip.status);
+                const delivered = calculateDeliveredBags(trip);
+                const total = getTotalBags(trip);
                 const isExpanded = expandedTrips.has(trip._id);
-                const statusColor = getStatusColor(trip.status);
-                const progressPercentage = totalBags > 0 ? Math.min((deliveredBags / totalBags) * 100, 100) : 0;
+                const progress = total > 0 ? (delivered / total) : 0;
 
                 return (
-                  <View key={trip._id} style={styles.tripCard}>
-                    <TouchableOpacity onPress={() => toggleTripExpansion(trip._id)}>
-                      <View style={styles.tripHeader}>
-                        <View style={styles.tripMainInfo}>
-                          <Text style={styles.tripDate}>
-                            {new Date(trip.date || trip.createdAt || '').toLocaleDateString()}
-                          </Text>
-                          <Text style={styles.tripDriver}>
-                            {trip.driverId?.name || 'N/A'}
-                          </Text>
-                          <Text style={styles.tripVehicle}>
-                            {trip.vehicleId?.registrationNumber || 'N/A'}
-                          </Text>
-                          <Text style={styles.tripRoute}>
-                            {trip.from && trip.to ? `${trip.from} → ${trip.to}` : trip.routeId?.name || 'N/A'}
-                          </Text>
+                  <View key={trip._id} style={styles.tripCardContainer}>
+                    <TouchableOpacity
+                      activeOpacity={0.9}
+                      onPress={() => toggleTripExpansion(trip._id)}
+                      style={[styles.tripCard, isExpanded && styles.tripCardActive]}
+                    >
+                      <View style={styles.tripTop}>
+                        <View style={styles.tripHeading}>
+                          <View style={styles.truckIcon}>
+                            <Text style={{ fontSize: 20 }}>{s.icon}</Text>
+                          </View>
+                          <View>
+                            <Text style={styles.truckPlate}>{trip.vehicleId?.registrationNumber || 'NO-PLATE'}</Text>
+                            <Text style={styles.driverName}>{trip.driverId?.name || 'Unassigned'}</Text>
+                          </View>
                         </View>
-                        <View style={styles.tripStats}>
-                          <View style={styles.bagsContainer}>
-                            <Text style={styles.bagsText}>
-                              {deliveredBags} / {totalBags}
-                            </Text>
-                            <Text style={styles.bagsLabel}>bags</Text>
-                            {deliveredBags > 0 && (
-                              <View style={styles.progressBarContainer}>
-                                <View style={styles.progressBarBackground}>
-                                  <View
-                                    style={[
-                                      styles.progressBarFill,
-                                      {
-                                        width: `${progressPercentage}%`,
-                                        backgroundColor: deliveredBags >= totalBags ? '#16a34a' : '#2563eb',
-                                      },
-                                    ]}
-                                  />
+                        <View style={[styles.statusBox, { backgroundColor: s.bg }]}>
+                          <Text style={[styles.statusText, { color: s.color }]}>{s.label}</Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.routeBox}>
+                        <View style={styles.routePoint}>
+                          <View style={styles.routeDot} />
+                          <Text style={styles.routeText}>{trip.from || 'Warehouse'}</Text>
+                        </View>
+                        <View style={styles.routeLine} />
+                        <View style={styles.routePoint}>
+                          <View style={[styles.routeDot, { backgroundColor: colors.primary[500] }]} />
+                          <Text style={styles.routeText}>{trip.to || 'Last Stop'}</Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.progressSection}>
+                        <View style={styles.progressLabelRow}>
+                          <Text style={styles.progressLabel}>Loading Progress</Text>
+                          <Text style={styles.progressValue}>{delivered} / {total} Bags</Text>
+                        </View>
+                        <View style={styles.barBg}>
+                          <View style={[styles.barFill, { width: `${progress * 100}%`, backgroundColor: progress >= 1 ? colors.success[500] : colors.primary[500] }]} />
+                        </View>
+                        <View style={styles.metaRow}>
+                          <Text style={styles.metaText}>📅 {new Date(trip.date || trip.createdAt || '').toLocaleDateString()}</Text>
+                          <Text style={styles.metaText}>📍 {trip.deliveryEntries?.length || 0} Drop-offs</Text>
+                        </View>
+                      </View>
+
+                      {isExpanded && (
+                        <View style={styles.expansionPanel}>
+                          <View style={styles.expansionDivider} />
+                          <View style={styles.expandedGrid}>
+                            <View style={styles.expandedItem}>
+                              <Text style={styles.expandedLabel}>Start Log</Text>
+                              <Text style={styles.expandedValue}>{trip.startTime ? new Date(trip.startTime).toLocaleTimeString() : '---'}</Text>
+                            </View>
+                            <View style={styles.expandedItem}>
+                              <Text style={styles.expandedLabel}>Current KM</Text>
+                              <Text style={styles.expandedValue}>{trip.summary?.totalKm || trip.tripDetails?.distance || 0} km</Text>
+                            </View>
+                            <View style={styles.expandedItem}>
+                              <Text style={styles.expandedLabel}>Delivered</Text>
+                              <Text style={[styles.expandedValue, { color: colors.success[600] }]}>{trip.summary?.totalQuantityDelivered || delivered}</Text>
+                            </View>
+                            <View style={styles.expandedItem}>
+                              <Text style={styles.expandedLabel}>Drops Done</Text>
+                              <Text style={styles.expandedValue}>{trip.summary?.numberOfCompletedDeliveries || 0} / {trip.deliveryEntries?.length || 0}</Text>
+                            </View>
+                          </View>
+
+                          {trip.deliveryEntries && trip.deliveryEntries.length > 0 && (
+                            <View style={styles.miniList}>
+                              <Text style={styles.miniListTitle}>Recent Drop Log</Text>
+                              {trip.deliveryEntries.slice(0, 3).map((e, i) => (
+                                <View key={i} style={styles.miniListItem}>
+                                  <Text style={styles.miniListPlace} numberOfLines={1}>{e.deliveryPointId?.name || e.location || 'Unknown Point'}</Text>
+                                  <Text style={[styles.miniListStatus, { color: e.actualDelivery?.deliveredAt ? colors.success[600] : colors.text.tertiary }]}>
+                                    {e.actualDelivery?.deliveredAt ? 'DELIVERED' : 'PENDING'}
+                                  </Text>
                                 </View>
-                              </View>
-                            )}
-                          </View>
-                          <Text style={styles.deliveryCount}>
-                            {deliveryCount} location{deliveryCount !== 1 ? 's' : ''}
-                          </Text>
-                          <View style={[styles.statusBadge, { backgroundColor: statusColor.bg }]}>
-                            <Text style={[styles.statusText, { color: statusColor.text }]}>
-                              {trip.status?.replace('_', ' ').toUpperCase()}
-                            </Text>
-                          </View>
+                              ))}
+                              {trip.deliveryEntries.length > 3 && (
+                                <Text style={styles.miniListMore}>+ {trip.deliveryEntries.length - 3} more locations</Text>
+                              )}
+                            </View>
+                          )}
                         </View>
-                        <Text style={styles.expandIcon}>{isExpanded ? '▼' : '▶'}</Text>
-                      </View>
+                      )}
                     </TouchableOpacity>
-
-                    {isExpanded && (
-                      <View style={styles.tripExpanded}>
-                        <View style={styles.expandedSection}>
-                          <Text style={styles.expandedTitle}>Trip Information</Text>
-                          <Text style={styles.expandedText}>
-                            <Text style={styles.expandedLabel}>Trip ID:</Text> {trip._id.substring(trip._id.length - 8)}
-                          </Text>
-                          <Text style={styles.expandedText}>
-                            <Text style={styles.expandedLabel}>Start Time:</Text>{' '}
-                            {trip.startTime ? new Date(trip.startTime).toLocaleString() : 'N/A'}
-                          </Text>
-                          <Text style={styles.expandedText}>
-                            <Text style={styles.expandedLabel}>End Time:</Text>{' '}
-                            {trip.endTime ? new Date(trip.endTime).toLocaleString() : 'N/A'}
-                          </Text>
-                          <Text style={styles.expandedText}>
-                            <Text style={styles.expandedLabel}>Distance:</Text>{' '}
-                            {trip.summary?.totalKm || trip.tripDetails?.distance || 'N/A'} km
-                          </Text>
-                        </View>
-
-                        <View style={styles.expandedSection}>
-                          <Text style={styles.expandedTitle}>Summary</Text>
-                          <Text style={styles.expandedText}>
-                            <Text style={styles.expandedLabel}>Total Loaded:</Text>{' '}
-                            {trip.summary?.totalQuantityLoaded || 0} bags
-                          </Text>
-                          <Text style={styles.expandedText}>
-                            <Text style={styles.expandedLabel}>Total Delivered:</Text>{' '}
-                            <Text style={styles.deliveredText}>{trip.summary?.totalQuantityDelivered || deliveredBags} bags</Text>
-                          </Text>
-                          <Text style={styles.expandedText}>
-                            <Text style={styles.expandedLabel}>Completed Deliveries:</Text>{' '}
-                            {trip.summary?.numberOfCompletedDeliveries || 0} / {deliveryCount}
-                          </Text>
-                        </View>
-
-                        {trip.deliveryEntries && trip.deliveryEntries.length > 0 && (
-                          <View style={styles.expandedSection}>
-                            <Text style={styles.expandedTitle}>
-                              Delivery Locations ({trip.deliveryEntries.length})
-                            </Text>
-                            <ScrollView style={styles.deliveriesScroll}>
-                              {trip.deliveryEntries.map((entry, index) => {
-                                const plannedItems = entry.plannedDelivery?.feedItems || [];
-                                const actualItems = entry.actualDelivery?.feedItems || [];
-                                const plannedBags = plannedItems.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0);
-                                const actualBags = actualItems.length > 0
-                                  ? actualItems.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0)
-                                  : plannedBags;
-                                const location = entry.deliveryPointId?.name
-                                  ? `${entry.deliveryPointId.name} ${entry.location ? `(${entry.location})` : ''}`
-                                  : (entry.notes || entry.location || `Location ${index + 1}`);
-                                const isDelivered = !!entry.actualDelivery?.deliveredAt;
-
-                                return (
-                                  <View
-                                    key={index}
-                                    style={[
-                                      styles.deliveryEntry,
-                                      isDelivered ? styles.deliveryEntryDelivered : styles.deliveryEntryPending,
-                                    ]}
-                                  >
-                                    <View style={styles.deliveryEntryHeader}>
-                                      <Text style={styles.deliveryEntryLocation}>
-                                        {index + 1}. {location}
-                                      </Text>
-                                      {isDelivered && (
-                                        <View style={styles.deliveredBadge}>
-                                          <Text style={styles.deliveredBadgeText}>✓ Delivered</Text>
-                                        </View>
-                                      )}
-                                    </View>
-                                    <Text style={styles.deliveryEntryBags}>
-                                      Bags: {actualBags} {plannedItems[0]?.unit || 'bags'}
-                                      {actualBags !== plannedBags && actualBags > 0 && (
-                                        <Text style={styles.plannedBags}> (Planned: {plannedBags})</Text>
-                                      )}
-                                    </Text>
-                                    {isDelivered && entry.actualDelivery && (
-                                      <View style={styles.deliveryInfo}>
-                                        {entry.actualDelivery.receivedBy && (
-                                          <Text style={styles.deliveryInfoText}>
-                                            Received by: {entry.actualDelivery.receivedBy}
-                                          </Text>
-                                        )}
-                                        {entry.actualDelivery.deliveredAt && (
-                                          <Text style={styles.deliveryInfoText}>
-                                            Delivered: {new Date(entry.actualDelivery.deliveredAt).toLocaleString()}
-                                          </Text>
-                                        )}
-                                      </View>
-                                    )}
-                                  </View>
-                                );
-                              })}
-                            </ScrollView>
-                          </View>
-                        )}
-                      </View>
-                    )}
                   </View>
                 );
               })}
             </View>
           )}
-        </Card>
-      )}
-
-      {/* Create Trip Modal */}
-      <Modal
-        visible={showCreateModal}
-        onClose={() => {
-          setShowCreateModal(false);
-          resetForm();
-        }}
-        title="Start New Trip"
-      >
-        <ScrollView>
-          <Input
-            label="Date"
-            value={formData.date}
-            onChangeText={(text) => setFormData({ ...formData, date: text })}
-          />
-
-          <View style={styles.formRow}>
-            <Input
-              label="From"
-              value={formData.from}
-              onChangeText={(text) => setFormData({ ...formData, from: text })}
-              containerStyle={styles.halfInput}
-            />
-            <Input
-              label="To"
-              value={formData.to}
-              onChangeText={(text) => setFormData({ ...formData, to: text })}
-              containerStyle={styles.halfInput}
-            />
-          </View>
-          <Select
-            label="Driver *"
-            value={formData.driverId}
-            onChange={(value) => setFormData({ ...formData, driverId: value as string })}
-            options={[
-              { label: 'Select Driver', value: '' },
-              ...drivers.map(d => ({ label: `${d.name || 'Driver'} (${d.phoneNumber || ''})`, value: d._id })),
-            ]}
-            required
-          />
-          <Select
-            label="Vehicle *"
-            value={formData.vehicleId}
-            onChange={(value) => setFormData({ ...formData, vehicleId: value as string })}
-            options={[
-              { label: 'Select Vehicle', value: '' },
-              ...vehicles.map(v => ({ label: `${v.registrationNumber} ${v.vehicleType ? `(${v.vehicleType})` : ''}`, value: v._id })),
-            ]}
-            required
-          />
-          <View style={styles.formRow}>
-            <Input
-              label="Present KM"
-              value={formData.presentKm}
-              onChangeText={(text) => setFormData({ ...formData, presentKm: text })}
-              keyboardType="numeric"
-              containerStyle={styles.halfInput}
-            />
-            <Input
-              label="KM Average"
-              value={formData.kmAverage}
-              onChangeText={(text) => setFormData({ ...formData, kmAverage: text })}
-              keyboardType="numeric"
-              containerStyle={styles.halfInput}
-            />
-          </View>
-          <Input
-            label="Distance (km)"
-            value={formData.distance}
-            onChangeText={(text) => setFormData({ ...formData, distance: text })}
-            keyboardType="numeric"
-          />
-          <Input
-            label="Total Quantity (bags)"
-            value={formData.quantity}
-            onChangeText={(text) => setFormData({ ...formData, quantity: text })}
-            keyboardType="numeric"
-          />
-          <View style={styles.formRow}>
-            <Input
-              label="Oil/Diesel (L)"
-              value={formData.oilDiesel}
-              onChangeText={(text) => setFormData({ ...formData, oilDiesel: text })}
-              keyboardType="numeric"
-              containerStyle={styles.halfInput}
-            />
-            <Input
-              label="Advance Payment"
-              value={formData.advancePayment}
-              onChangeText={(text) => setFormData({ ...formData, advancePayment: text })}
-              keyboardType="numeric"
-              containerStyle={styles.halfInput}
-            />
-          </View>
-          <Input
-            label="Helper Name"
-            value={formData.helper}
-            onChangeText={(text) => setFormData({ ...formData, helper: text })}
-          />
-          <Input
-            label="Other"
-            value={formData.other}
-            onChangeText={(text) => setFormData({ ...formData, other: text })}
-          />
-          <View style={styles.modalActions}>
-            <Button
-              onPress={() => {
-                setShowCreateModal(false);
-                resetForm();
-              }}
-              variant="secondary"
-              style={styles.modalButton}
-            >
-              Cancel
-            </Button>
-            <Button onPress={handleCreateTrip} style={styles.modalButton}>
-              Create Trip
-            </Button>
-          </View>
-        </ScrollView>
-      </Modal>
-    </ScrollView>
+        </Animated.View>
+        <View style={{ height: 120 }} />
+      </ScrollView>
+    </View>
   );
 };
+
+// Helper component for horizontal list
+const HorizontalGrid = ({ children, style }: any) => (
+  <ScrollView
+    horizontal
+    showsHorizontalScrollIndicator={false}
+    contentContainerStyle={style}
+  >
+    {children}
+  </ScrollView>
+);
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: colors.background.primary,
   },
-  header: {
+  backgroundGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: 300,
+  },
+  headerSpacer: {
+    height: Platform.OS === 'ios' ? 40 : 20,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  headerIconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  headerIconBtnOff: {
+    opacity: 0.6,
+  },
+  headerIconText: {
+    fontSize: 18,
+  },
+  headerNewBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#fff',
+    borderRadius: borderRadius.full,
+    ...shadows.md,
+  },
+  headerNewBtnText: {
+    color: colors.primary[700],
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  liveToolbar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+  },
+  liveIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.success[500],
+  },
+  liveLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.7)',
+    letterSpacing: 1,
+  },
+  alertsLabel: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  notificationsWrapper: {
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.xs,
+  },
+  notificationsCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    padding: spacing.md,
+    borderRadius: borderRadius.xl,
+    ...shadows.lg,
+  },
+  notifHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  notifTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: colors.text.primary,
+    textTransform: 'uppercase',
+  },
+  notifClear: {
+    fontSize: 12,
+    color: colors.primary[600],
+    fontWeight: '600',
+  },
+  notifItem: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: colors.border.light,
+  },
+  notifIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.primary[50],
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  notifMsg: {
+    fontSize: 13,
+    color: colors.text.primary,
+    fontWeight: '500',
+  },
+  notifTime: {
+    fontSize: 10,
+    color: colors.text.tertiary,
+    marginTop: 2,
+  },
+  notifEmpty: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+  notifEmptyText: {
+    fontSize: 12,
+    color: colors.text.tertiary,
+    fontStyle: 'italic',
+  },
+  filtersBar: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    gap: 10,
+  },
+  filterChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: borderRadius.full,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  filterChipActive: {
+    ...shadows.md,
+    borderColor: 'transparent',
+  },
+  filterChipText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  centralLoader: {
+    paddingVertical: 100,
+    alignItems: 'center',
+  },
+  tripList: {
+    paddingHorizontal: spacing.md,
+    gap: 16,
+  },
+  tripCardContainer: {
+    ...shadows.md,
+  },
+  tripCard: {
+    backgroundColor: '#fff',
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: colors.border.light,
+    padding: spacing.md,
+  },
+  tripCardActive: {
+    borderColor: colors.primary[200],
+    ...shadows.lg,
+    transform: [{ scale: 1.01 }],
+  },
+  tripTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    padding: 16,
-    backgroundColor: '#ffffff',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#111827',
-  },
-  subtitle: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginTop: 4,
-  },
-  headerButtons: {
-    flexDirection: 'row',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  headerButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  smallButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  filterContainer: {
-    padding: 16,
-    paddingTop: 0,
-  },
-  notificationsCard: {
-    margin: 16,
-    marginTop: 0,
-  },
-  notificationsHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     marginBottom: 16,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#111827',
-  },
-  notificationsList: {
-    gap: 12,
-    maxHeight: 300,
-  },
-  notificationItem: {
-    padding: 12,
-    borderRadius: 8,
-    borderLeftWidth: 4,
-    marginBottom: 8,
-  },
-  notificationCompleted: {
-    backgroundColor: '#f0fdf4',
-    borderLeftColor: '#16a34a',
-  },
-  notificationDelivery: {
-    backgroundColor: '#dbeafe',
-    borderLeftColor: '#2563eb',
-  },
-  notificationMessage: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 4,
-  },
-  notificationMeta: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginBottom: 2,
-  },
-  notificationTime: {
-    fontSize: 11,
-    color: '#9ca3af',
-    marginTop: 4,
-  },
-  loader: {
-    marginVertical: 32,
-  },
-  tripsCard: {
-    margin: 16,
-    marginTop: 0,
-  },
-  tripsList: {
-    gap: 12,
-  },
-  tripCard: {
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 8,
-    backgroundColor: '#ffffff',
-    overflow: 'hidden',
-  },
-  tripHeader: {
+  tripHeading: {
     flexDirection: 'row',
-    padding: 12,
+    alignItems: 'center',
+    gap: 12,
+  },
+  truckIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: colors.background.tertiary,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  tripMainInfo: {
-    flex: 1,
-  },
-  tripDate: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 4,
-  },
-  tripDriver: {
-    fontSize: 14,
-    color: '#374151',
-    marginBottom: 2,
-  },
-  tripVehicle: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginBottom: 2,
-  },
-  tripRoute: {
-    fontSize: 12,
-    color: '#6b7280',
-  },
-  tripStats: {
-    alignItems: 'flex-end',
-    marginRight: 8,
-  },
-  bagsContainer: {
-    alignItems: 'flex-end',
-    marginBottom: 8,
-  },
-  bagsText: {
+  truckPlate: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#111827',
+    color: colors.text.primary,
   },
-  bagsLabel: {
-    fontSize: 10,
-    color: '#6b7280',
-    marginTop: 2,
+  driverName: {
+    fontSize: 13,
+    color: colors.text.tertiary,
+    fontWeight: '500',
   },
-  progressBarContainer: {
-    width: 80,
-    marginTop: 4,
-  },
-  progressBarBackground: {
-    width: '100%',
-    height: 6,
-    backgroundColor: '#e5e7eb',
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    borderRadius: 3,
-  },
-  deliveryCount: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginBottom: 8,
-  },
-  statusBadge: {
+  statusBox: {
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 6,
   },
   statusText: {
     fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  routeBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 4,
+  },
+  routePoint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  routeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.border.medium,
+  },
+  routeText: {
+    fontSize: 12,
     fontWeight: '600',
+    color: colors.text.secondary,
+    maxWidth: 100,
   },
-  expandIcon: {
-    fontSize: 16,
-    color: '#6b7280',
-    marginLeft: 8,
+  routeLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.border.light,
+    marginHorizontal: 10,
+    borderStyle: 'dashed',
   },
-  tripExpanded: {
-    padding: 12,
-    backgroundColor: '#f9fafb',
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
+  progressSection: {
+    gap: 8,
   },
-  expandedSection: {
-    marginBottom: 16,
-  },
-  expandedTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 8,
-  },
-  expandedText: {
-    fontSize: 14,
-    color: '#374151',
-    marginBottom: 4,
-  },
-  expandedLabel: {
-    fontWeight: '600',
-    color: '#6b7280',
-  },
-  deliveredText: {
-    color: '#16a34a',
-    fontWeight: '600',
-  },
-  deliveriesScroll: {
-    maxHeight: 200,
-  },
-  deliveryEntry: {
-    padding: 12,
-    borderRadius: 8,
-    borderLeftWidth: 4,
-    marginBottom: 8,
-  },
-  deliveryEntryPending: {
-    backgroundColor: '#ffffff',
-    borderLeftColor: '#d1d5db',
-  },
-  deliveryEntryDelivered: {
-    backgroundColor: '#f0fdf4',
-    borderLeftColor: '#16a34a',
-  },
-  deliveryEntryHeader: {
+  progressLabelRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
   },
-  deliveryEntryLocation: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
-    flex: 1,
-  },
-  deliveredBadge: {
-    backgroundColor: '#16a34a',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
-  },
-  deliveredBadgeText: {
-    color: '#ffffff',
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  deliveryEntryBags: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginBottom: 4,
-  },
-  plannedBags: {
+  progressLabel: {
     fontSize: 11,
-    color: '#9ca3af',
+    fontWeight: 'bold',
+    color: colors.text.tertiary,
+    textTransform: 'uppercase',
   },
-  deliveryInfo: {
+  progressValue: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.text.primary,
+  },
+  barBg: {
+    height: 8,
+    backgroundColor: colors.background.tertiary,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  barFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    gap: 16,
     marginTop: 4,
-    paddingTop: 4,
-    borderTopWidth: 1,
-    borderTopColor: '#86efac',
   },
-  deliveryInfoText: {
+  metaText: {
     fontSize: 11,
-    color: '#6b7280',
+    color: colors.text.tertiary,
+    fontWeight: '500',
+  },
+  expansionPanel: {
+    marginTop: 16,
+  },
+  expansionDivider: {
+    height: 1,
+    backgroundColor: colors.border.light,
+    marginBottom: 16,
+  },
+  expandedGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 16,
+  },
+  expandedItem: {
+    width: '45%',
+  },
+  expandedLabel: {
+    fontSize: 10,
+    color: colors.text.tertiary,
+    fontWeight: 'bold',
+    textTransform: 'uppercase',
     marginBottom: 2,
   },
-  formRow: {
-    flexDirection: 'row',
-    gap: 12,
+  expandedValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text.secondary,
   },
-  halfInput: {
+  miniList: {
+    marginTop: 20,
+    backgroundColor: colors.background.tertiary,
+    padding: 12,
+    borderRadius: 12,
+  },
+  miniListTitle: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: colors.text.secondary,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  miniListItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    borderBottomWidth: 0.5,
+    borderBottomColor: colors.border.light,
+  },
+  miniListPlace: {
+    fontSize: 12,
+    color: colors.text.primary,
+    fontWeight: '500',
     flex: 1,
   },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 12,
-    marginTop: 24,
+  miniListStatus: {
+    fontSize: 10,
+    fontWeight: '800',
   },
-  modalButton: {
-    flex: 1,
+  miniListMore: {
+    fontSize: 10,
+    color: colors.text.tertiary,
+    textAlign: 'center',
+    marginTop: 8,
+    fontStyle: 'italic',
   },
   emptyState: {
     alignItems: 'center',
-    paddingVertical: 32,
+    paddingVertical: 100,
   },
-  emptyText: {
+  emptyEmoji: {
+    fontSize: 60,
+    marginBottom: 20,
+  },
+  emptyTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 8,
+  },
+  emptySub: {
     fontSize: 14,
-    color: '#6b7280',
+    color: 'rgba(255,255,255,0.6)',
     textAlign: 'center',
+    paddingHorizontal: 60,
+    marginBottom: 30,
+  },
+  emptyBtn: {
+    width: 200,
+    backgroundColor: '#fff',
   },
 });
 

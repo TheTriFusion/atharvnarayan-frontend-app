@@ -75,7 +75,16 @@ const TripPage: React.FC = () => {
 
     const handleTripComplete = async (completedTrip: any) => {
         setActiveTrip(null);
-        navigation.goBack();
+        Alert.alert(
+            "Trip Completed",
+            "Collection logs have been submitted successfully.",
+            [
+                {
+                    text: "Done",
+                    onPress: () => navigation.navigate('MilkTruckDriverDashboard')
+                }
+            ]
+        );
     };
 
     if (loading && !activeTrip && vehicles.length === 0) {

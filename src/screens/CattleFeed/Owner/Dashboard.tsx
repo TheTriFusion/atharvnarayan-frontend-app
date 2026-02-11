@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, TouchableOpacity, Alert } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useOwner } from '../../../contexts/OwnerContext';
@@ -12,10 +13,12 @@ import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
 
 const CattleFeedOwnerDashboard: React.FC = () => {
-  const { isSuperAdmin } = useAuth();
+  const { isSuperAdmin, user, logout } = useAuth();
   const { selectedOwnerId } = useOwner();
+  const navigation = useNavigation<any>();
   const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   const [stats, setStats] = useState({
     totalInventoryItems: 0,
     totalStockValue: 0,
@@ -106,6 +109,37 @@ const CattleFeedOwnerDashboard: React.FC = () => {
     setRefreshing(false);
   };
 
+  const handleLogout = async () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+          onPress: () => setShowMenu(false),
+        },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await logout();
+              setShowMenu(false);
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'Login' }],
+              });
+            } catch (error) {
+              console.error('Logout failed:', error);
+              Alert.alert('Error', 'Failed to log out');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   if (loading && stats.totalInventoryItems === 0) {
     return (
       <View style={styles.loadingContainer}>
@@ -135,18 +169,43 @@ const CattleFeedOwnerDashboard: React.FC = () => {
         <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
       }
     >
-      <View style={styles.header}>
-        <Text style={styles.title}>Dashboard</Text>
-        {loading && (
-          <View style={styles.loadingIndicator}>
-            <ActivityIndicator size="small" color="#3b82f6" />
-            <Text style={styles.loadingLabel}>Loading...</Text>
+      <View style={styles.headerContainer}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Dashboard</Text>
+          <View style={styles.headerRight}>
+            {loading && (
+              <View style={styles.loadingIndicator}>
+                <ActivityIndicator size="small" color="#3b82f6" />
+                <Text style={styles.loadingLabel}>Loading...</Text>
+              </View>
+            )}
+            {!loading && (
+              <Button onPress={loadStats} variant="secondary" style={styles.refreshButton}>
+                🔄 Refresh
+              </Button>
+            )}
+            <TouchableOpacity
+              style={styles.profileButton}
+              onPress={() => setShowMenu(!showMenu)}
+            >
+              <Text style={styles.profileIcon} allowFontScaling={false}>👤</Text>
+            </TouchableOpacity>
           </View>
-        )}
-        {!loading && (
-          <Button onPress={loadStats} variant="secondary" style={styles.refreshButton}>
-            🔄 Refresh
-          </Button>
+        </View>
+
+        {showMenu && (
+          <View style={styles.menuDropdown}>
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); /* Navigate to Profile */ }}>
+              <Text style={styles.menuText}>Profile</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); /* Navigate to Settings */ }}>
+              <Text style={styles.menuText}>Settings</Text>
+            </TouchableOpacity>
+            <View style={styles.menuDivider} />
+            <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
+              <Text style={[styles.menuText, styles.logoutText]}>Log Out</Text>
+            </TouchableOpacity>
+          </View>
         )}
       </View>
 
@@ -275,12 +334,25 @@ const styles = StyleSheet.create({
   retryButton: {
     marginTop: 8,
   },
+  headerContainer: {
+    zIndex: 10,
+    backgroundColor: '#ffffff',
+    paddingBottom: 8,
+    paddingTop: 40,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#ffffff',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   title: {
     fontSize: 24,
@@ -403,6 +475,49 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#dc2626',
     fontWeight: '600',
+  },
+  profileButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#f3f4f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  profileIcon: {
+    fontSize: 22,
+  },
+  menuDropdown: {
+    position: 'absolute',
+    top: 70,
+    right: 16,
+    backgroundColor: 'white',
+    borderRadius: 8,
+    paddingVertical: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    minWidth: 150,
+  },
+  menuItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  menuText: {
+    fontSize: 16,
+    color: '#374151',
+  },
+  logoutText: {
+    color: '#dc2626',
+    fontWeight: '600',
+  },
+  menuDivider: {
+    height: 1,
+    backgroundColor: '#e5e7eb',
+    marginVertical: 4,
   },
 });
 

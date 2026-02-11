@@ -2,6 +2,10 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../contexts/AuthContext';
+import ModalComponent from './Modal';
+import Button from './Button';
+import { colors } from '../../theme/colors';
+import { spacing } from '../../theme/spacing';
 
 interface ProfileMenuProps {
   style?: any;
@@ -9,33 +13,22 @@ interface ProfileMenuProps {
 
 const ProfileMenu: React.FC<ProfileMenuProps> = ({ style }) => {
   const [visible, setVisible] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
   const { user, logout } = useAuth();
   const navigation = useNavigation<any>();
 
   const handleLogout = () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-          onPress: () => setVisible(false),
-        },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            await logout();
-            navigation.reset({
-              index: 0,
-              routes: [{ name: 'Login' }],
-            });
-            setVisible(false);
-          },
-        },
-      ]
-    );
+    setVisible(false);
+    setShowLogoutModal(true);
+  };
+
+  const confirmLogout = async () => {
+    await logout();
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'Login' }],
+    });
+    setShowLogoutModal(false);
   };
 
   const getRoleLabel = () => {
@@ -110,22 +103,27 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({ style }) => {
                 style={styles.menuItem}
                 onPress={() => {
                   setVisible(false);
-                  // Could navigate to profile screen if exists
+                  // Profile navigation logic can be added here if a common profile screen exists
                 }}
               >
                 <Text style={styles.menuItemIcon}>👤</Text>
-                <Text style={styles.menuItemText}>Profile</Text>
+                <View style={styles.menuItemContent}>
+                  <Text style={styles.menuItemText}>Profile</Text>
+                  <Text style={styles.menuItemSubtext}>View & edit account</Text>
+                </View>
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={styles.menuItem}
                 onPress={() => {
                   setVisible(false);
-                  // Could navigate to settings if exists
                 }}
               >
                 <Text style={styles.menuItemIcon}>⚙️</Text>
-                <Text style={styles.menuItemText}>Settings</Text>
+                <View style={styles.menuItemContent}>
+                  <Text style={styles.menuItemText}>Settings</Text>
+                  <Text style={styles.menuItemSubtext}>App preferences</Text>
+                </View>
               </TouchableOpacity>
 
               <View style={styles.menuDivider} />
@@ -148,6 +146,36 @@ const ProfileMenu: React.FC<ProfileMenuProps> = ({ style }) => {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Premium Logout Modal */}
+      <ModalComponent
+        visible={showLogoutModal}
+        onClose={() => setShowLogoutModal(false)}
+        title="Logout"
+        subtitle="Are you sure you want to end your session?"
+        icon="👋"
+        footer={
+          <View style={{ flexDirection: 'row', gap: spacing.md }}>
+            <Button
+              onPress={() => setShowLogoutModal(false)}
+              variant="secondary"
+              style={{ flex: 1 }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onPress={confirmLogout}
+              style={{ flex: 1, backgroundColor: colors.error[600] }}
+            >
+              Logout
+            </Button>
+          </View>
+        }
+      >
+        <Text style={{ color: colors.text.tertiary, textAlign: 'center', marginVertical: spacing.md }}>
+          You will need to login again to access your dashboard.
+        </Text>
+      </ModalComponent>
     </>
   );
 };
@@ -248,7 +276,16 @@ const styles = StyleSheet.create({
   },
   menuItemText: {
     fontSize: 16,
+    fontWeight: '600',
     color: '#1f2937',
+  },
+  menuItemSubtext: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 2,
+  },
+  menuItemContent: {
+    flex: 1,
   },
   logoutItem: {
     marginTop: 8,

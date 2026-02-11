@@ -46,13 +46,14 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}): Promise<
     return pendingRequests.get(requestKey);
   }
 
+  const { headers: customHeaders, ...restOptions } = options;
   const config: RequestInit = {
+    ...restOptions,
     headers: {
       'Content-Type': 'application/json',
       ...(token && { Authorization: `Bearer ${token}` }),
-      ...options.headers,
+      ...customHeaders,
     },
-    ...options,
   };
 
   if (config.body && typeof config.body === 'object') {
@@ -96,7 +97,7 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}): Promise<
         error.message.includes('Failed to fetch')
       )) {
         console.error('Network Error: Backend server may not be running or CORS issue');
-        throw new Error('Cannot connect to server. Please ensure the backend is running on http://localhost:5000');
+        throw new Error('Cannot connect to server. Please ensure the backend is running on api.thetrifusion.in');
       }
       console.error('API Error:', error);
       throw error;
@@ -300,8 +301,8 @@ export const cattleFeedTruckAPI = {
     return apiRequest(url);
   },
   getWarehouse: (id: string) => apiRequest(`/cattle-feed-truck/warehouses/${id}`),
-  createWarehouse: (data: any) => apiRequest('/cattle-feed-truck/warehouses', { method: 'POST', body: JSON.stringify(data) }),
-  updateWarehouse: (id: string, data: any) => apiRequest(`/cattle-feed-truck/warehouses/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  createWarehouse: (data: any) => apiRequest('/cattle-feed-truck/warehouses', { method: 'POST', body: data }),
+  updateWarehouse: (id: string, data: any) => apiRequest(`/cattle-feed-truck/warehouses/${id}`, { method: 'PUT', body: data }),
   deleteWarehouse: (id: string) => apiRequest(`/cattle-feed-truck/warehouses/${id}`, { method: 'DELETE' }),
 
   // Vehicles
@@ -310,8 +311,8 @@ export const cattleFeedTruckAPI = {
     return apiRequest(url);
   },
   getVehicle: (id: string) => apiRequest(`/cattle-feed-truck/vehicles/${id}`),
-  createVehicle: (data: any) => apiRequest('/cattle-feed-truck/vehicles', { method: 'POST', body: JSON.stringify(data) }),
-  updateVehicle: (id: string, data: any) => apiRequest(`/cattle-feed-truck/vehicles/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  createVehicle: (data: any) => apiRequest('/cattle-feed-truck/vehicles', { method: 'POST', body: data }),
+  updateVehicle: (id: string, data: any) => apiRequest(`/cattle-feed-truck/vehicles/${id}`, { method: 'PUT', body: data }),
   deleteVehicle: (id: string) => apiRequest(`/cattle-feed-truck/vehicles/${id}`, { method: 'DELETE' }),
 
   // Delivery Points
@@ -320,8 +321,8 @@ export const cattleFeedTruckAPI = {
     return apiRequest(url);
   },
   getDeliveryPoint: (id: string) => apiRequest(`/cattle-feed-truck/delivery-points/${id}`),
-  createDeliveryPoint: (data: any) => apiRequest('/cattle-feed-truck/delivery-points', { method: 'POST', body: JSON.stringify(data) }),
-  updateDeliveryPoint: (id: string, data: any) => apiRequest(`/cattle-feed-truck/delivery-points/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  createDeliveryPoint: (data: any) => apiRequest('/cattle-feed-truck/delivery-points', { method: 'POST', body: data }),
+  updateDeliveryPoint: (id: string, data: any) => apiRequest(`/cattle-feed-truck/delivery-points/${id}`, { method: 'PUT', body: data }),
   deleteDeliveryPoint: (id: string) => apiRequest(`/cattle-feed-truck/delivery-points/${id}`, { method: 'DELETE' }),
 
   // Routes
@@ -330,8 +331,8 @@ export const cattleFeedTruckAPI = {
     return apiRequest(url);
   },
   getRoute: (id: string) => apiRequest(`/cattle-feed-truck/routes/${id}`),
-  createRoute: (data: any) => apiRequest('/cattle-feed-truck/routes', { method: 'POST', body: JSON.stringify(data) }),
-  updateRoute: (id: string, data: any) => apiRequest(`/cattle-feed-truck/routes/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  createRoute: (data: any) => apiRequest('/cattle-feed-truck/routes', { method: 'POST', body: data }),
+  updateRoute: (id: string, data: any) => apiRequest(`/cattle-feed-truck/routes/${id}`, { method: 'PUT', body: data }),
   deleteRoute: (id: string) => apiRequest(`/cattle-feed-truck/routes/${id}`, { method: 'DELETE' }),
 
   // Drivers
@@ -340,8 +341,8 @@ export const cattleFeedTruckAPI = {
     return apiRequest(url);
   },
   getDriver: (id: string) => apiRequest(`/cattle-feed-truck/drivers/${id}`),
-  createDriver: (data: any) => apiRequest('/cattle-feed-truck/drivers', { method: 'POST', body: JSON.stringify(data) }),
-  updateDriver: (id: string, data: any) => apiRequest(`/cattle-feed-truck/drivers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  createDriver: (data: any) => apiRequest('/cattle-feed-truck/drivers', { method: 'POST', body: data }),
+  updateDriver: (id: string, data: any) => apiRequest(`/cattle-feed-truck/drivers/${id}`, { method: 'PUT', body: data }),
   deleteDriver: (id: string) => apiRequest(`/cattle-feed-truck/drivers/${id}`, { method: 'DELETE' }),
 
   // Feed Products
@@ -350,8 +351,8 @@ export const cattleFeedTruckAPI = {
     return apiRequest(url);
   },
   getFeedProduct: (id: string) => apiRequest(`/cattle-feed-truck/feed-products/${id}`),
-  createFeedProduct: (data: any) => apiRequest('/cattle-feed-truck/feed-products', { method: 'POST', body: JSON.stringify(data) }),
-  updateFeedProduct: (id: string, data: any) => apiRequest(`/cattle-feed-truck/feed-products/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  createFeedProduct: (data: any) => apiRequest('/cattle-feed-truck/feed-products', { method: 'POST', body: data }),
+  updateFeedProduct: (id: string, data: any) => apiRequest(`/cattle-feed-truck/feed-products/${id}`, { method: 'PUT', body: data }),
   deleteFeedProduct: (id: string) => apiRequest(`/cattle-feed-truck/feed-products/${id}`, { method: 'DELETE' }),
 
   // Trips
@@ -360,11 +361,11 @@ export const cattleFeedTruckAPI = {
     return apiRequest(url);
   },
   getTrip: (id: string) => apiRequest(`/cattle-feed-truck/trips/${id}`),
-  createTrip: (data: any) => apiRequest('/cattle-feed-truck/trips', { method: 'POST', body: JSON.stringify(data) }),
-  updateTrip: (id: string, data: any) => apiRequest(`/cattle-feed-truck/trips/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  createTrip: (data: any) => apiRequest('/cattle-feed-truck/trips', { method: 'POST', body: data }),
+  updateTrip: (id: string, data: any) => apiRequest(`/cattle-feed-truck/trips/${id}`, { method: 'PUT', body: data }),
   deleteTrip: (id: string) => apiRequest(`/cattle-feed-truck/trips/${id}`, { method: 'DELETE' }),
-  addDelivery: (tripId: string, data: any) => apiRequest(`/cattle-feed-truck/trips/${tripId}/deliveries`, { method: 'POST', body: JSON.stringify(data) }),
-  updateDelivery: (tripId: string, deliveryId: string, data: any) => apiRequest(`/cattle-feed-truck/trips/${tripId}/deliveries/${deliveryId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  addDelivery: (tripId: string, data: any) => apiRequest(`/cattle-feed-truck/trips/${tripId}/deliveries`, { method: 'POST', body: data }),
+  updateDelivery: (tripId: string, deliveryId: string, data: any) => apiRequest(`/cattle-feed-truck/trips/${tripId}/deliveries/${deliveryId}`, { method: 'PUT', body: data }),
   deleteDelivery: (tripId: string, deliveryId: string) => apiRequest(`/cattle-feed-truck/trips/${tripId}/deliveries/${deliveryId}`, { method: 'DELETE' }),
 };
 
