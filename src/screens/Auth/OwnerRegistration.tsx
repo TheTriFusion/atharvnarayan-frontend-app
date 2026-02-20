@@ -183,7 +183,10 @@ const OwnerRegistration: React.FC = () => {
         subtitleStyle={{ color: 'rgba(255, 255, 255, 0.8)' }}
       />
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={{ flex: 1 }}
+      >
         <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
           {renderStepIndicator()}
 

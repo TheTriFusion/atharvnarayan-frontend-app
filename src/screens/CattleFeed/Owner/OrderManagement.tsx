@@ -1,22 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator } from 'react-native';
 import { getCattleFeedOrders, updateCattleFeedOrderStatus, updateCattleFeedOrderPayment } from '../../../utils/storage';
 import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
 import Input from '../../../components/common/Input';
 import Modal from '../../../components/common/Modal';
-import Select from '../../../components/common/Select';
+import ScreenHeader from '../../../components/common/ScreenHeader';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useOwner } from '../../../contexts/OwnerContext';
 import OwnerSelector from '../../../components/SuperAdmin/OwnerSelector';
+import { colors } from '../../../theme/colors';
+import { spacing, borderRadius, shadows } from '../../../theme/spacing';
+import { typography } from '../../../theme/typography';
 
 const OrderManagement: React.FC = () => {
   const { isSuperAdmin } = useAuth();
   const { selectedOwnerId } = useOwner();
-  const { success: showSuccess, error: showError } = useToast();
+  const toast = useToast();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState('all');
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [paymentModal, setPaymentModal] = useState({ show: false, orderId: null as string | null, currentPaid: 0, total: 0 });
@@ -37,36 +41,42 @@ const OrderManagement: React.FC = () => {
       const data = await getCattleFeedOrders(params);
       setOrders(Array.isArray(data) ? data : []);
     } catch (err: any) {
-      showError('Failed to load orders');
+      toast.error('Failed to load orders');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadOrders();
   };
 
   const handleStatusUpdate = async (orderId: string, newStatus: string) => {
     try {
       setProcessingId(orderId);
       await updateCattleFeedOrderStatus(orderId, newStatus, '');
-      showSuccess(`Order updated to ${newStatus}`);
+      toast.success(`Order updated to ${newStatus}`);
       loadOrders();
     } catch (err: any) {
-      showError('Failed to update order status');
+      toast.error('Failed to update status');
     } finally {
       setProcessingId(null);
     }
   };
 
-  const getStatusColor = (status: string) => {
-    const colors: Record<string, { bg: string; text: string }> = {
-      pending: { bg: '#fef3c7', text: '#92400e' },
-      confirmed: { bg: '#dbeafe', text: '#1e40af' },
-      processing: { bg: '#e9d5ff', text: '#6b21a8' },
-      packed: { bg: '#e0e7ff', text: '#3730a3' },
-      shipped: { bg: '#cffafe', text: '#155e75' },
-      delivered: { bg: '#d1fae5', text: '#065f46' },
-      cancelled: { bg: '#fee2e2', text: '#991b1b' },
+  const getStatusConfig = (status: string) => {
+    const configs: Record<string, { bg: string; text: string; icon: string }> = {
+      pending: { bg: '#fef3c7', text: '#92400e', icon: '⏳' },
+      confirmed: { bg: '#dbeafe', text: '#1e40af', icon: '✅' },
+      processing: { bg: '#e9d5ff', text: '#6b21a8', icon: '⚙️' },
+      packed: { bg: '#e0e7ff', text: '#3730a3', icon: '📦' },
+      shipped: { bg: '#cffafe', text: '#155e75', icon: '🚚' },
+      delivered: { bg: '#d1fae5', text: '#065f46', icon: '🏁' },
+      cancelled: { bg: '#fee2e2', text: '#991b1b', icon: '❌' },
     };
-    return colors[status] || { bg: '#f3f4f6', text: '#374151' };
+    return configs[status] || { bg: '#f3f4f6', text: '#374151', icon: '📄' };
   };
 
   const openPaymentModal = (order: any) => {
@@ -83,7 +93,7 @@ const OrderManagement: React.FC = () => {
     try {
       const amount = parseFloat(paymentAmount);
       if (isNaN(amount) || amount < 0) {
-        showError('Please enter a valid amount');
+        toast.error('Invalid amount');
         return;
       }
 
@@ -92,456 +102,508 @@ const OrderManagement: React.FC = () => {
         amountPaid: newTotalPaid,
       });
 
-      showSuccess('Payment recorded successfully');
+      toast.success('Payment recorded');
       setPaymentModal({ show: false, orderId: null, currentPaid: 0, total: 0 });
       loadOrders();
     } catch (err: any) {
-      showError('Failed to record payment');
+      toast.error('Failed to record payment');
     }
   };
 
-  const filterOptions = ['all', 'pending', 'confirmed', 'shipped', 'delivered', 'cancelled'];
-
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading orders...</Text>
-      </View>
-    );
-  }
+  const statusOptions = [
+    { label: 'All', value: 'all' },
+    { label: 'Pending', value: 'pending' },
+    { label: 'Confirmed', value: 'confirmed' },
+    { label: 'Processing', value: 'processing' },
+    { label: 'Shipped', value: 'shipped' },
+    { label: 'Delivered', value: 'delivered' },
+    { label: 'Cancelled', value: 'cancelled' },
+  ];
 
   return (
-    <ScrollView style={styles.container}>
-      {isSuperAdmin && <OwnerSelector systemType="cattleFeed" />}
+    <View style={styles.container}>
+      <ScreenHeader
+        title="Orders"
+        subtitle="Track & manage customer orders"
+        showBackButton
+      />
 
-      <View style={styles.header}>
-        <Text style={styles.title}>Order Management</Text>
-        <Button variant="primary" onPress={loadOrders}>
-          Refresh
-        </Button>
-      </View>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary[500]]} />
+        }
+      >
+        <View style={styles.content}>
+          {isSuperAdmin && <OwnerSelector systemType="cattleFeed" />}
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filters}>
-        {filterOptions.map(status => (
-          <TouchableOpacity
-            key={status}
-            style={[styles.filterButton, filter === status && styles.activeFilterButton]}
-            onPress={() => setFilter(status)}
-          >
-            <Text style={[styles.filterText, filter === status && styles.activeFilterText]}>
-              {status.charAt(0).toUpperCase() + status.slice(1)}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll}>
+            <View style={styles.chipsContainer}>
+              {statusOptions.map((opt) => (
+                <TouchableOpacity
+                  key={opt.value}
+                  style={[styles.chip, filter === opt.value && styles.activeChip]}
+                  onPress={() => setFilter(opt.value)}
+                >
+                  <Text style={[styles.chipText, filter === opt.value && styles.activeChipText]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
 
-      {orders.length === 0 ? (
-        <Card>
-          <Text style={styles.emptyText}>
-            No {filter !== 'all' ? filter : ''} orders found
-          </Text>
-        </Card>
-      ) : (
-        <View style={styles.ordersList}>
-          {orders.map((order) => {
-            const amountPaid = order.amountPaid || 0;
-            const balanceDue = order.totalAmount - amountPaid;
-            const statusColor = getStatusColor(order.status);
-
-            return (
-              <Card key={order._id} style={styles.orderCard}>
-                <View style={styles.orderHeader}>
-                  <View>
-                    <Text style={styles.orderNumber}>Order #{order.orderNumber}</Text>
-                    <Text style={styles.orderDate}>
-                      {new Date(order.createdAt).toLocaleString()}
-                    </Text>
-                  </View>
-                  <View style={[styles.statusBadge, { backgroundColor: statusColor.bg }]}>
-                    <Text style={[styles.statusText, { color: statusColor.text }]}>
-                      {order.status}
-                    </Text>
-                  </View>
+          {loading && !refreshing ? (
+            <ActivityIndicator size="large" color={colors.primary[500]} style={styles.loader} />
+          ) : (
+            <View style={styles.ordersList}>
+              {orders.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyEmoji}>📑</Text>
+                  <Text style={styles.emptyText}>No {filter !== 'all' ? filter : ''} orders found.</Text>
                 </View>
+              ) : (
+                orders.map((order) => {
+                  const amountPaid = order.amountPaid || 0;
+                  const balanceDue = order.totalAmount - amountPaid;
+                  const config = getStatusConfig(order.status);
 
-                <View style={styles.orderDetails}>
-                  <View style={styles.detailSection}>
-                    <Text style={styles.sectionTitle}>Customer Details</Text>
-                    {order.customerId ? (
-                      <View style={styles.customerInfo}>
-                        <Text style={styles.customerName}>{order.customerId.name}</Text>
-                        <Text style={styles.customerDetail}>{order.customerId.phone}</Text>
-                        {order.deliveryAddress && (
+                  return (
+                    <Card key={order._id || order.id} style={styles.orderCard}>
+                      <View style={styles.orderTop}>
+                        <View style={styles.orderInfo}>
+                          <Text style={styles.orderNumber}>#{order.orderNumber}</Text>
+                          <Text style={styles.orderDate}>
+                            {new Date(order.createdAt).toLocaleDateString(undefined, {
+                              day: 'numeric', month: 'short', year: 'numeric'
+                            })}
+                          </Text>
+                        </View>
+                        <View style={[styles.statusBadge, { backgroundColor: config.bg }]}>
+                          <Text style={[styles.statusText, { color: config.text }]}>
+                            {config.icon} {order.status.toUpperCase()}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.divider} />
+
+                      <View style={styles.customerRow}>
+                        <View style={styles.clientAvatar}>
+                          <Text style={styles.clientAvatarText}>
+                            {order.customerId?.name?.charAt(0).toUpperCase() || '?'}
+                          </Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.clientName}>{order.customerId?.name || 'Customer Deleted'}</Text>
+                          <Text style={styles.clientPhone}>📞 {order.customerId?.phone}</Text>
+                        </View>
+                        <View style={styles.amountBox}>
+                          <Text style={styles.amountLabel}>Total</Text>
+                          <Text style={styles.amountValue}>₹{order.totalAmount}</Text>
+                        </View>
+                      </View>
+
+                      {order.deliveryAddress && (
+                        <View style={styles.addressBox}>
+                          <Text style={styles.addressTitle}>📍 Delivery to</Text>
+                          <Text style={styles.addressText}>
+                            {order.deliveryAddress.street}, {order.deliveryAddress.city}, {order.deliveryAddress.state} - {order.deliveryAddress.pincode}
+                          </Text>
+                        </View>
+                      )}
+
+                      <View style={styles.itemsList}>
+                        <Text style={styles.itemsHeader}>ORDER ITEMS ({order.items?.length || 0})</Text>
+                        {order.items?.map((item: any, idx: number) => (
+                          <View key={idx} style={styles.itemRow}>
+                            <Text style={styles.itemName}>{item.productName} ({item.quantity} {item.unit})</Text>
+                            <Text style={styles.itemPrice}>₹{item.totalPrice}</Text>
+                          </View>
+                        ))}
+                      </View>
+
+                      <View style={styles.paymentStatusRow}>
+                        <View style={styles.paymentLabelBox}>
+                          <Text style={styles.paymentInfoLabel}>Payment</Text>
+                          <Text style={[styles.paymentStatusText, order.paymentStatus === 'paid' ? { color: colors.success[600] } : { color: colors.warning[600] }]}>
+                            {order.paymentStatus?.toUpperCase() || 'PENDING'}
+                          </Text>
+                        </View>
+                        <View style={styles.dueBox}>
+                          <Text style={styles.dueLabel}>Due</Text>
+                          <Text style={[styles.dueValue, balanceDue > 0 ? { color: colors.error[600] } : { color: colors.success[600] }]}>
+                            ₹{balanceDue > 0 ? balanceDue : 0}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.actionsGrid}>
+                        {balanceDue > 0 && order.status !== 'cancelled' && (
+                          <TouchableOpacity
+                            style={[styles.smallBtn, { backgroundColor: colors.primary[50] }]}
+                            onPress={() => openPaymentModal(order)}
+                          >
+                            <Text style={[styles.smallBtnText, { color: colors.primary[700] }]}>Record Pay</Text>
+                          </TouchableOpacity>
+                        )}
+
+                        {order.status === 'pending' && (
                           <>
-                            <Text style={styles.customerDetail}>{order.deliveryAddress.street}</Text>
-                            <Text style={styles.customerDetail}>
-                              {order.deliveryAddress.city}, {order.deliveryAddress.state} - {order.deliveryAddress.pincode}
-                            </Text>
+                            <TouchableOpacity
+                              style={[styles.smallBtn, { backgroundColor: colors.success[50] }]}
+                              onPress={() => handleStatusUpdate(order._id || order.id, 'confirmed')}
+                            >
+                              <Text style={[styles.smallBtnText, { color: colors.success[700] }]}>Confirm</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[styles.smallBtn, { backgroundColor: colors.error[50] }]}
+                              onPress={() => handleStatusUpdate(order._id || order.id, 'cancelled')}
+                            >
+                              <Text style={[styles.smallBtnText, { color: colors.error[700] }]}>Cancel</Text>
+                            </TouchableOpacity>
                           </>
                         )}
+                        {order.status === 'confirmed' && (
+                          <TouchableOpacity
+                            style={[styles.smallBtn, { backgroundColor: colors.primary[600] }]}
+                            onPress={() => handleStatusUpdate(order._id || order.id, 'processing')}
+                          >
+                            <Text style={[styles.smallBtnText, { color: 'white' }]}>Process</Text>
+                          </TouchableOpacity>
+                        )}
+                        {order.status === 'processing' && (
+                          <TouchableOpacity
+                            style={[styles.smallBtn, { backgroundColor: colors.primary[600] }]}
+                            onPress={() => handleStatusUpdate(order._id || order.id, 'shipped')}
+                          >
+                            <Text style={[styles.smallBtnText, { color: 'white' }]}>Ship</Text>
+                          </TouchableOpacity>
+                        )}
+                        {order.status === 'shipped' && (
+                          <TouchableOpacity
+                            style={[styles.smallBtn, { backgroundColor: colors.success[600] }]}
+                            onPress={() => handleStatusUpdate(order._id || order.id, 'delivered')}
+                          >
+                            <Text style={[styles.smallBtnText, { color: 'white' }]}>Deliver</Text>
+                          </TouchableOpacity>
+                        )}
                       </View>
-                    ) : (
-                      <Text style={styles.errorText}>Customer Deleted</Text>
-                    )}
-                  </View>
-
-                  <View style={styles.detailSection}>
-                    <Text style={styles.sectionTitle}>Order Info</Text>
-                    <Text style={styles.orderInfoText}>
-                      Total Amount: <Text style={styles.amountText}>₹{order.totalAmount}</Text>
-                    </Text>
-                    <Text style={styles.orderInfoText}>
-                      Payment Method: {order.paymentMethod?.toUpperCase() || 'N/A'}
-                    </Text>
-                    <View style={styles.paymentInfo}>
-                      <Text style={styles.paymentLabel}>
-                        Status: <Text style={[styles.paymentStatus, order.paymentStatus === 'paid' && styles.paidStatus]}>
-                          {order.paymentStatus?.toUpperCase() || 'PENDING'}
-                        </Text>
-                      </Text>
-                    </View>
-                    <View style={styles.paymentDetails}>
-                      <Text style={styles.paymentDetailText}>Paid: ₹{amountPaid}</Text>
-                      <Text style={[styles.paymentDetailText, balanceDue > 0 && styles.dueAmount]}>
-                        Due: ₹{balanceDue > 0 ? balanceDue : 0}
-                      </Text>
-                    </View>
-                    {balanceDue > 0 && order.status !== 'cancelled' && (
-                      <Button
-                        variant="primary"
-                        onPress={() => openPaymentModal(order)}
-                        style={styles.paymentButton}
-                      >
-                        Record Payment
-                      </Button>
-                    )}
-                  </View>
-                </View>
-
-                <View style={styles.itemsSection}>
-                  <Text style={styles.sectionTitle}>Items</Text>
-                  <View style={styles.itemsList}>
-                    {order.items?.map((item: any, idx: number) => (
-                      <View key={idx} style={styles.itemRow}>
-                        <Text style={styles.itemText}>
-                          {item.quantity} x {item.productName} ({item.unit})
-                        </Text>
-                        <Text style={styles.itemPrice}>₹{item.totalPrice}</Text>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-
-                <View style={styles.actionsSection}>
-                  {order.status === 'pending' && (
-                    <>
-                      <Button
-                        variant="primary"
-                        onPress={() => handleStatusUpdate(order._id || order.id, 'confirmed')}
-                        disabled={processingId === order._id}
-                        style={styles.actionButton}
-                      >
-                        Confirm
-                      </Button>
-                      <Button
-                        variant="danger"
-                        onPress={() => handleStatusUpdate(order._id || order.id, 'cancelled')}
-                        disabled={processingId === order._id}
-                        style={styles.actionButton}
-                      >
-                        Cancel
-                      </Button>
-                    </>
-                  )}
-                  {order.status === 'confirmed' && (
-                    <Button
-                      variant="primary"
-                      onPress={() => handleStatusUpdate(order._id || order.id, 'processing')}
-                      disabled={processingId === order._id}
-                      style={styles.actionButton}
-                    >
-                      Process
-                    </Button>
-                  )}
-                  {order.status === 'processing' && (
-                    <Button
-                      variant="primary"
-                      onPress={() => handleStatusUpdate(order._id || order.id, 'shipped')}
-                      disabled={processingId === order._id}
-                      style={styles.actionButton}
-                    >
-                      Ship
-                    </Button>
-                  )}
-                  {order.status === 'shipped' && (
-                    <Button
-                      variant="primary"
-                      onPress={() => handleStatusUpdate(order._id || order.id, 'delivered')}
-                      disabled={processingId === order._id}
-                      style={styles.actionButton}
-                    >
-                      Mark Delivered
-                    </Button>
-                  )}
-                </View>
-              </Card>
-            );
-          })}
+                    </Card>
+                  );
+                })
+              )}
+            </View>
+          )}
         </View>
-      )}
+      </ScrollView>
 
       <Modal
         visible={paymentModal.show}
         onClose={() => setPaymentModal({ show: false, orderId: null, currentPaid: 0, total: 0 })}
         title="Record Payment"
       >
-        <View style={styles.paymentModalContent}>
-          <View style={styles.paymentInfoBox}>
-            <Text style={styles.paymentInfoText}>
-              Total Order Amount: <Text style={styles.paymentInfoValue}>₹{paymentModal.total}</Text>
-            </Text>
-            <Text style={styles.paymentInfoText}>
-              Already Paid: <Text style={styles.paymentInfoValue}>₹{paymentModal.currentPaid}</Text>
-            </Text>
-            <Text style={[styles.paymentInfoText, styles.dueAmount]}>
-              Balance Due: ₹{paymentModal.total - paymentModal.currentPaid}
-            </Text>
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <View style={styles.modalBody}>
+            <View style={styles.paymentSummaryBox}>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Total Paid</Text>
+                <Text style={styles.summaryValue}>₹{paymentModal.currentPaid}</Text>
+              </View>
+              <View style={[styles.summaryRow, { borderTopWidth: 1, borderColor: '#e2e8f0', paddingTop: 10, marginTop: 10 }]}>
+                <Text style={styles.summaryLabel}>Balance Due</Text>
+                <Text style={[styles.summaryValue, { color: colors.error[600], fontWeight: 'bold' }]}>₹{paymentModal.total - paymentModal.currentPaid}</Text>
+              </View>
+            </View>
+
+            <Input
+              label="Payment Received (₹)"
+              value={paymentAmount}
+              onChangeText={setPaymentAmount}
+              keyboardType="decimal-pad"
+              placeholder="0.00"
+            />
+
+            <View style={styles.modalActions}>
+              <Button
+                variant="outline"
+                style={{ flex: 1 }}
+                onPress={() => setPaymentModal({ show: false, orderId: null, currentPaid: 0, total: 0 })}
+              >Cancel</Button>
+              <Button
+                style={{ flex: 1 }}
+                onPress={handlePaymentSubmit}
+              >Save</Button>
+            </View>
           </View>
-          <Input
-            label="Amount to Receive (₹)"
-            value={paymentAmount}
-            onChangeText={setPaymentAmount}
-            keyboardType="decimal-pad"
-            required
-          />
-          <View style={styles.paymentModalButtons}>
-            <Button
-              variant="secondary"
-              onPress={() => setPaymentModal({ show: false, orderId: null, currentPaid: 0, total: 0 })}
-            >
-              Cancel
-            </Button>
-            <Button variant="primary" onPress={handlePaymentSubmit}>
-              Save Payment
-            </Button>
-          </View>
-        </View>
+          <View style={{ height: 20 }} />
+        </ScrollView>
       </Modal>
-    </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#f8fafc',
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  content: {
+    padding: spacing.lg,
   },
-  loadingText: {
-    fontSize: 18,
-    color: '#6b7280',
+  loader: {
+    marginVertical: spacing.xxl,
   },
-  header: {
+  chipsScroll: {
+    marginBottom: spacing.lg,
+  },
+  chipsContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
+    gap: spacing.sm,
+    paddingHorizontal: 2,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1f2937',
-  },
-  filters: {
-    marginBottom: 16,
-  },
-  filterButton: {
+  chip: {
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#ffffff',
-    marginRight: 8,
+    borderRadius: borderRadius.full,
+    backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: '#e2e8f0',
   },
-  activeFilterButton: {
-    backgroundColor: '#2563eb',
-    borderColor: '#2563eb',
+  activeChip: {
+    backgroundColor: colors.primary[600],
+    borderColor: colors.primary[600],
   },
-  filterText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
+  chipText: {
+    fontSize: 13,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.text.tertiary,
   },
-  activeFilterText: {
-    color: '#ffffff',
-  },
-  emptyText: {
-    textAlign: 'center',
-    padding: 20,
-    color: '#6b7280',
+  activeChipText: {
+    color: 'white',
   },
   ordersList: {
-    gap: 16,
+    marginBottom: spacing.xxl,
   },
   orderCard: {
-    marginBottom: 16,
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
   },
-  orderHeader: {
+  orderTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 16,
+    alignItems: 'center',
+  },
+  orderInfo: {
+    flex: 1,
   },
   orderNumber: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: 4,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
   },
   orderDate: {
-    fontSize: 14,
-    color: '#6b7280',
+    fontSize: 12,
+    color: colors.text.tertiary,
+    marginTop: 2,
   },
   statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
   },
   statusText: {
+    fontSize: 10,
+    fontWeight: typography.fontWeight.bold,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#f1f5f9',
+    marginVertical: spacing.md,
+  },
+  customerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+  },
+  clientAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primary[50],
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.md,
+  },
+  clientAvatarText: {
+    fontSize: 16,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[600],
+  },
+  clientName: {
+    fontSize: 15,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+  },
+  clientPhone: {
     fontSize: 12,
-    fontWeight: '600',
+    color: colors.text.tertiary,
+    marginTop: 1,
   },
-  orderDetails: {
-    gap: 16,
-    marginBottom: 16,
+  amountBox: {
+    alignItems: 'flex-end',
   },
-  detailSection: {
-    marginBottom: 12,
+  amountLabel: {
+    fontSize: 10,
+    color: colors.text.tertiary,
+    textTransform: 'uppercase',
   },
-  sectionTitle: {
+  amountValue: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 8,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[600],
   },
-  customerInfo: {
-    gap: 4,
+  addressBox: {
+    backgroundColor: '#f8fafc',
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    marginBottom: spacing.lg,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
   },
-  customerName: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#1f2937',
-  },
-  customerDetail: {
-    fontSize: 14,
-    color: '#6b7280',
-  },
-  errorText: {
-    fontSize: 14,
-    color: '#dc2626',
-  },
-  orderInfoText: {
-    fontSize: 14,
-    color: '#6b7280',
+  addressTitle: {
+    fontSize: 11,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.secondary,
     marginBottom: 4,
   },
-  amountText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#059669',
-  },
-  paymentInfo: {
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-  },
-  paymentLabel: {
-    fontSize: 14,
-    color: '#6b7280',
-  },
-  paymentStatus: {
-    fontWeight: '500',
-    color: '#f97316',
-  },
-  paidStatus: {
-    color: '#059669',
-  },
-  paymentDetails: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 4,
-  },
-  paymentDetailText: {
+  addressText: {
     fontSize: 12,
-    color: '#6b7280',
-  },
-  dueAmount: {
-    color: '#dc2626',
-    fontWeight: 'bold',
-  },
-  paymentButton: {
-    marginTop: 8,
-  },
-  itemsSection: {
-    marginBottom: 16,
+    color: colors.text.tertiary,
+    lineHeight: 18,
   },
   itemsList: {
-    backgroundColor: '#f9fafb',
-    padding: 12,
-    borderRadius: 8,
-    gap: 8,
+    backgroundColor: '#f1f5f9',
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    marginBottom: spacing.lg,
+  },
+  itemsHeader: {
+    fontSize: 10,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.tertiary,
+    marginBottom: 8,
+    letterSpacing: 0.5,
   },
   itemRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    marginBottom: 4,
   },
-  itemText: {
-    fontSize: 14,
-    color: '#374151',
+  itemName: {
+    fontSize: 13,
+    color: colors.text.secondary,
     flex: 1,
   },
   itemPrice: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#1f2937',
+    fontSize: 13,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.text.primary,
   },
-  actionsSection: {
+  paymentStatusRow: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 16,
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    marginBottom: spacing.lg,
+    paddingHorizontal: 4,
   },
-  actionButton: {
-    flex: 1,
+  paymentLabelBox: {
+    gap: 4,
   },
-  paymentModalContent: {
-    gap: 16,
+  paymentInfoLabel: {
+    fontSize: 11,
+    color: colors.text.tertiary,
+    textTransform: 'uppercase',
   },
-  paymentInfoBox: {
-    backgroundColor: '#f9fafb',
-    padding: 12,
-    borderRadius: 8,
-    gap: 8,
-  },
-  paymentInfoText: {
+  paymentStatusText: {
     fontSize: 14,
-    color: '#6b7280',
+    fontWeight: typography.fontWeight.bold,
   },
-  paymentInfoValue: {
-    fontWeight: '600',
-    color: '#1f2937',
+  dueBox: {
+    alignItems: 'flex-end',
+    gap: 2,
   },
-  paymentModalButtons: {
+  dueLabel: {
+    fontSize: 10,
+    color: colors.text.tertiary,
+    textTransform: 'uppercase',
+  },
+  dueValue: {
+    fontSize: 18,
+    fontWeight: typography.fontWeight.bold,
+  },
+  actionsGrid: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  smallBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexGrow: 1,
+  },
+  smallBtnText: {
+    fontSize: 13,
+    fontWeight: typography.fontWeight.bold,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: spacing.xxl,
+    backgroundColor: 'white',
+    borderRadius: borderRadius.xl,
+    marginTop: spacing.md,
+  },
+  emptyEmoji: {
+    fontSize: 40,
+    marginBottom: spacing.md,
+    opacity: 0.2,
+  },
+  emptyText: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.tertiary,
+  },
+  modalBody: {
+    paddingVertical: spacing.sm,
+  },
+  paymentSummaryBox: {
+    backgroundColor: '#f8fafc',
+    padding: spacing.lg,
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing.xl,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  summaryLabel: {
+    fontSize: 14,
+    color: colors.text.tertiary,
+  },
+  summaryValue: {
+    fontSize: 16,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.text.primary,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginTop: spacing.lg,
   },
 });
 

@@ -1,24 +1,36 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
-import { getCattleFeedSales, addCattleFeedSale, updateCattleFeedSale, deleteCattleFeedSale, getCattleFeedInventory, getCattleFeedInventoryItem } from '../../../utils/storage';
+import { View, Text, StyleSheet, ScrollView, Alert, TouchableOpacity, RefreshControl, ActivityIndicator } from 'react-native';
+import {
+  getCattleFeedSales,
+  addCattleFeedSale,
+  updateCattleFeedSale,
+  deleteCattleFeedSale,
+  getCattleFeedInventory,
+  getCattleFeedInventoryItem
+} from '../../../utils/storage';
 import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
 import Input from '../../../components/common/Input';
 import Select from '../../../components/common/Select';
 import Modal from '../../../components/common/Modal';
 import Receipt from '../../../components/common/Receipt';
+import ScreenHeader from '../../../components/common/ScreenHeader';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useOwner } from '../../../contexts/OwnerContext';
 import OwnerSelector from '../../../components/SuperAdmin/OwnerSelector';
+import { colors } from '../../../theme/colors';
+import { spacing, borderRadius, shadows } from '../../../theme/spacing';
+import { typography } from '../../../theme/typography';
 
 const SalesManagement: React.FC = () => {
   const { isSuperAdmin, user: currentUser } = useAuth();
   const { selectedOwnerId } = useOwner();
-  const { success, error: showError } = useToast();
+  const toast = useToast();
   const [sales, setSales] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [saleType, setSaleType] = useState<'wholesale' | 'retail'>('wholesale');
   const [showForm, setShowForm] = useState(false);
   const [editingSale, setEditingSale] = useState<any>(null);
@@ -51,11 +63,16 @@ const SalesManagement: React.FC = () => {
       setSales(Array.isArray(salesData) ? salesData : []);
       setInventory(Array.isArray(inventoryData) ? inventoryData : []);
     } catch (err: any) {
-      const errorMessage = err.message || 'Failed to load sales data';
-      showError(errorMessage);
+      toast.error(err.message || 'Failed to load sales data');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadData();
   };
 
   const handleInputChange = (name: string, value: string) => {
@@ -71,43 +88,39 @@ const SalesManagement: React.FC = () => {
 
   const addItemToSale = async () => {
     if (!selectedItem.inventoryId || !selectedItem.quantity) {
-      showError('Please select an item and enter quantity');
+      toast.error('Please select an item and enter quantity');
       return;
     }
 
     try {
       const inventoryItem = await getCattleFeedInventoryItem(selectedItem.inventoryId);
       if (!inventoryItem) {
-        showError('Item not found');
+        toast.error('Item not found');
         return;
       }
 
       const quantity = parseFloat(selectedItem.quantity.toString());
       if (quantity <= 0) {
-        showError('Quantity must be greater than 0');
+        toast.error('Quantity must be greater than 0');
         return;
       }
 
       if (quantity > inventoryItem.quantity) {
-        showError(`Insufficient stock. Available: ${inventoryItem.quantity} ${inventoryItem.unit}`);
+        toast.error(`Insufficient stock. Available: ${inventoryItem.quantity} ${inventoryItem.unit}`);
         return;
       }
 
-      // Check if item already in cart
       const existingIndex = formData.items.findIndex(item =>
-        item.inventoryId === selectedItem.inventoryId ||
-        item.inventoryId === inventoryItem._id ||
-        item.inventoryId === inventoryItem.id
+        item.inventoryId === selectedItem.inventoryId
       );
       const unitPrice = saleType === 'wholesale' ? inventoryItem.wholesalePrice : inventoryItem.retailPrice;
       const total = quantity * unitPrice;
 
       if (existingIndex >= 0) {
-        // Update existing item
         const updatedItems = [...formData.items];
         const newQuantity = updatedItems[existingIndex].quantity + quantity;
         if (newQuantity > inventoryItem.quantity) {
-          showError(`Insufficient stock. Available: ${inventoryItem.quantity} ${inventoryItem.unit}`);
+          toast.error(`Insufficient stock. Available: ${inventoryItem.quantity} ${inventoryItem.unit}`);
           return;
         }
         updatedItems[existingIndex] = {
@@ -117,7 +130,6 @@ const SalesManagement: React.FC = () => {
         };
         setFormData(prev => ({ ...prev, items: updatedItems }));
       } else {
-        // Add new item
         setFormData(prev => ({
           ...prev,
           items: [
@@ -135,7 +147,7 @@ const SalesManagement: React.FC = () => {
 
       setSelectedItem({ inventoryId: '', quantity: '' });
     } catch (err: any) {
-      showError(err.message || 'Failed to add item to sale');
+      toast.error(err.message || 'Failed to add item to sale');
     }
   };
 
@@ -148,20 +160,16 @@ const SalesManagement: React.FC = () => {
     const item = formData.items[index];
     try {
       const inventoryItem = await getCattleFeedInventoryItem(item.inventoryId);
-
       if (!inventoryItem) {
-        showError('Item not found');
+        toast.error('Item not found');
         return;
       }
 
       const quantity = parseFloat(newQuantity);
-      if (quantity <= 0) {
-        showError('Quantity must be greater than 0');
-        return;
-      }
+      if (isNaN(quantity) || quantity <= 0) return;
 
       if (quantity > inventoryItem.quantity) {
-        showError(`Insufficient stock. Available: ${inventoryItem.quantity} ${inventoryItem.unit}`);
+        toast.error(`Insufficient stock. Available: ${inventoryItem.quantity} ${inventoryItem.unit}`);
         return;
       }
 
@@ -174,7 +182,7 @@ const SalesManagement: React.FC = () => {
       };
       setFormData(prev => ({ ...prev, items: updatedItems }));
     } catch (err: any) {
-      showError(err.message || 'Failed to update item quantity');
+      toast.error(err.message || 'Failed to update item quantity');
     }
   };
 
@@ -184,22 +192,14 @@ const SalesManagement: React.FC = () => {
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
-
-    if (!formData.customerName.trim()) {
-      newErrors.customerName = 'Customer name is required';
-    }
-    if (formData.items.length === 0) {
-      newErrors.items = 'Please add at least one item to the sale';
-    }
-
+    if (!formData.customerName.trim()) newErrors.customerName = 'Customer name is required';
+    if (formData.items.length === 0) newErrors.items = 'Add at least one item';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async () => {
-    if (!validateForm()) {
-      return;
-    }
+    if (!validateForm()) return;
 
     try {
       setSubmitting(true);
@@ -213,17 +213,16 @@ const SalesManagement: React.FC = () => {
 
       if (editingSale) {
         await updateCattleFeedSale(editingSale._id || editingSale.id, saleData);
-        success('Sale updated successfully');
+        toast.success('Sale updated successfully');
       } else {
         await addCattleFeedSale(saleData);
-        success('Sale created successfully');
+        toast.success('Sale created successfully');
       }
 
       resetForm();
       await loadData();
     } catch (err: any) {
-      const errorMessage = err.message || 'Failed to save sale';
-      showError(errorMessage);
+      toast.error(err.message || 'Failed to save sale');
     } finally {
       setSubmitting(false);
     }
@@ -243,7 +242,7 @@ const SalesManagement: React.FC = () => {
   const handleDelete = async (id: string) => {
     Alert.alert(
       'Delete Sale',
-      'Are you sure you want to delete this sale? This will restore inventory quantities.',
+      'Are you sure you want to delete this sale? Inventory will be restored.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -252,11 +251,10 @@ const SalesManagement: React.FC = () => {
           onPress: async () => {
             try {
               await deleteCattleFeedSale(id);
-              success('Sale deleted successfully');
+              toast.success('Sale deleted successfully');
               await loadData();
             } catch (err: any) {
-              const errorMessage = err.message || 'Failed to delete sale';
-              showError(errorMessage);
+              toast.error(err.message || 'Failed to delete sale');
             }
           },
         },
@@ -265,240 +263,229 @@ const SalesManagement: React.FC = () => {
   };
 
   const resetForm = () => {
-    setFormData({
-      customerName: '',
-      customerPhone: '',
-      items: [],
-    });
+    setFormData({ customerName: '', customerPhone: '', items: [] });
     setSelectedItem({ inventoryId: '', quantity: '' });
     setEditingSale(null);
     setShowForm(false);
     setErrors({});
   };
 
-  // Filter sales by type
   const filteredSales = sales.filter(sale => sale.saleType === saleType);
-
-  // Get available inventory items (with stock > 0)
   const availableItems = inventory.filter(item => item.quantity > 0);
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading sales data...</Text>
-      </View>
-    );
-  }
-
   return (
-    <ScrollView style={styles.container}>
-      {isSuperAdmin && <OwnerSelector systemType="cattleFeed" />}
-
-      <View style={styles.header}>
-        <Text style={styles.title}>Sales Management</Text>
-        <Button
-          variant="primary"
-          onPress={() => {
-            resetForm();
-            setShowForm(true);
-          }}
-        >
-          Create New Sale
-        </Button>
-      </View>
-
-      {/* Sale Type Toggle */}
-      <Card style={styles.typeCard}>
-        <View style={styles.typeButtons}>
-          <Button
-            variant={saleType === 'wholesale' ? 'primary' : 'secondary'}
+    <View style={styles.container}>
+      <ScreenHeader
+        title="Sales"
+        subtitle={`Manage ${saleType} records`}
+        showBackButton
+        rightAction={
+          <TouchableOpacity
+            style={styles.addButton}
             onPress={() => {
-              setSaleType('wholesale');
               resetForm();
+              setShowForm(true);
             }}
-            style={styles.typeButton}
           >
-            Wholesale Sales
-          </Button>
-          <Button
-            variant={saleType === 'retail' ? 'primary' : 'secondary'}
-            onPress={() => {
-              setSaleType('retail');
-              resetForm();
-            }}
-            style={styles.typeButton}
-          >
-            Retail Sales
-          </Button>
-        </View>
-      </Card>
+            <Text style={styles.addButtonIcon}>➕</Text>
+          </TouchableOpacity>
+        }
+      />
 
-      {/* Sales List */}
-      <Card title="Sales List">
-        {filteredSales.length === 0 ? (
-          <Text style={styles.emptyText}>No {saleType} sales found</Text>
-        ) : (
-          <View style={styles.salesList}>
-            {filteredSales.map((sale) => (
-              <View key={sale._id || sale.id} style={styles.saleItem}>
-                <View style={styles.saleItemContent}>
-                  <Text style={styles.saleDate}>
-                    {new Date(sale.date || sale.createdAt).toLocaleDateString()}
-                  </Text>
-                  <Text style={styles.saleCustomer}>{sale.customerName}</Text>
-                  <Text style={styles.saleItems}>{sale.items?.length || 0} items</Text>
-                  <Text style={styles.saleTotal}>₹{sale.totalAmount?.toFixed(2) || '0.00'}</Text>
-                </View>
-                <View style={styles.saleActions}>
-                  <Button
-                    variant="secondary"
-                    onPress={() => {
-                      setSelectedSaleForReceipt(sale);
-                      setShowReceipt(true);
-                    }}
-                    style={styles.actionButton}
-                  >
-                    Receipt
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onPress={() => handleEdit(sale)}
-                    style={styles.actionButton}
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    variant="danger"
-                    onPress={() => handleDelete(sale._id || sale.id)}
-                    style={styles.actionButton}
-                  >
-                    Delete
-                  </Button>
-                </View>
-              </View>
-            ))}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary[500]]} />
+        }
+      >
+        <View style={styles.content}>
+          {isSuperAdmin && <OwnerSelector systemType="cattleFeed" />}
+
+          {/* Sale Type Tabs */}
+          <View style={styles.tabsContainer}>
+            <TouchableOpacity
+              style={[styles.tab, saleType === 'wholesale' && styles.activeTab]}
+              onPress={() => setSaleType('wholesale')}
+            >
+              <Text style={[styles.tabText, saleType === 'wholesale' && styles.activeTabText]}>Wholesale</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, saleType === 'retail' && styles.activeTab]}
+              onPress={() => setSaleType('retail')}
+            >
+              <Text style={[styles.tabText, saleType === 'retail' && styles.activeTabText]}>Retail</Text>
+            </TouchableOpacity>
           </View>
-        )}
-      </Card>
 
-      {/* Add/Edit Sale Form Modal */}
+          {loading && !refreshing ? (
+            <ActivityIndicator size="large" color={colors.primary[500]} style={styles.loader} />
+          ) : (
+            <View style={styles.listContainer}>
+              <View style={styles.listHeader}>
+                <Text style={styles.listTitle}>{saleType.charAt(0).toUpperCase() + saleType.slice(1)} Sales</Text>
+                <Text style={styles.listCount}>{filteredSales.length} Total</Text>
+              </View>
+
+              {filteredSales.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyEmoji}>💰</Text>
+                  <Text style={styles.emptyText}>No {saleType} sales records yet.</Text>
+                </View>
+              ) : (
+                filteredSales.map((sale) => (
+                  <Card key={sale._id || sale.id} style={styles.saleCard}>
+                    <View style={styles.saleTop}>
+                      <View>
+                        <Text style={styles.customerName}>{sale.customerName}</Text>
+                        <Text style={styles.saleDate}>
+                          {new Date(sale.date || sale.createdAt).toLocaleDateString(undefined, {
+                            day: 'numeric', month: 'short', year: 'numeric'
+                          })}
+                        </Text>
+                      </View>
+                      <Text style={styles.saleTotal}>₹{sale.totalAmount?.toFixed(2)}</Text>
+                    </View>
+
+                    <View style={styles.divider} />
+
+                    <View style={styles.itemsSummary}>
+                      <Text style={styles.itemsText}>
+                        📦 {sale.items?.length || 0} product{(sale.items?.length || 0) !== 1 ? 's' : ''} sold
+                      </Text>
+                      {sale.customerPhone && (
+                        <Text style={styles.phoneText}>📞 {sale.customerPhone}</Text>
+                      )}
+                    </View>
+
+                    <View style={styles.cardActions}>
+                      <TouchableOpacity
+                        style={[styles.actionBtn, styles.receiptBtn]}
+                        onPress={() => {
+                          setSelectedSaleForReceipt(sale);
+                          setShowReceipt(true);
+                        }}
+                      >
+                        <Text style={styles.receiptBtnText}>Receipt</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.actionBtn, styles.editBtn]}
+                        onPress={() => handleEdit(sale)}
+                      >
+                        <Text style={styles.editBtnText}>Edit</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.actionBtn, styles.deleteBtn]}
+                        onPress={() => handleDelete(sale._id || sale.id)}
+                      >
+                        <Text style={styles.deleteBtnText}>Delete</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </Card>
+                ))
+              )}
+            </View>
+          )}
+        </View>
+      </ScrollView>
+
+      {/* Sale Form Modal */}
       <Modal
         visible={showForm}
         onClose={resetForm}
-        title={editingSale ? 'Edit Sale' : 'Create New Sale'}
+        title={editingSale ? 'Edit Sale' : 'New Sale'}
       >
-        <ScrollView style={styles.modalContent}>
-          <View style={styles.formRow}>
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <View style={styles.modalContent}>
             <Input
-              label="Customer Name"
+              label="Customer Name *"
               value={formData.customerName}
-              onChangeText={(value) => handleInputChange('customerName', value)}
-              required
-              placeholder="Enter customer name"
+              onChangeText={(v) => handleInputChange('customerName', v)}
               error={errors.customerName}
+              placeholder="Full Name"
             />
             <Input
-              label="Customer Phone (Optional)"
+              label="Phone Number"
               value={formData.customerPhone}
-              onChangeText={(value) => handleInputChange('customerPhone', value)}
-              placeholder="Enter phone number"
+              onChangeText={(v) => handleInputChange('customerPhone', v)}
+              placeholder="Optional"
               keyboardType="phone-pad"
             />
-          </View>
 
-          <View style={styles.addItemsSection}>
-            <Text style={styles.sectionTitle}>Add Items</Text>
-            <View style={styles.addItemRow}>
+            <View style={styles.formDivider} />
+            <Text style={styles.formSectionTitle}>Add Products</Text>
+
+            <View style={styles.addItemForm}>
               <Select
-                label="Select Item"
+                label="Product"
                 value={selectedItem.inventoryId}
-                onChange={(value) => handleSelectedItemChange('inventoryId', value)}
+                onChange={(v) => handleSelectedItemChange('inventoryId', v)}
                 options={[
-                  { value: '', label: 'Select an item' },
-                  ...availableItems.map(item => ({
-                    value: item._id || item.id,
-                    label: `${item.name} (Stock: ${item.quantity} ${item.unit})`,
+                  { value: '', label: 'Select' },
+                  ...availableItems.map(i => ({
+                    value: i._id || i.id,
+                    label: `${i.name} (Stock: ${i.quantity})`,
                   })),
                 ]}
-                containerStyle={styles.selectItem}
+                containerStyle={{ flex: 1 }}
               />
-              <Input
-                label="Quantity"
-                value={selectedItem.quantity}
-                onChangeText={(value) => handleSelectedItemChange('quantity', value)}
-                keyboardType="decimal-pad"
-                placeholder="0"
-                containerStyle={styles.quantityInput}
-              />
-              <Button
-                variant="primary"
+              <View style={{ width: 100 }}>
+                <Input
+                  label="Qty"
+                  value={selectedItem.quantity}
+                  onChangeText={(v) => handleSelectedItemChange('quantity', v)}
+                  keyboardType="decimal-pad"
+                  placeholder="0"
+                />
+              </View>
+              <TouchableOpacity
+                style={styles.addIconBtn}
                 onPress={addItemToSale}
-                style={styles.addButton}
               >
-                Add Item
+                <Text style={styles.addIcon}>＋</Text>
+              </TouchableOpacity>
+            </View>
+
+            {errors.items && <Text style={styles.formError}>{errors.items}</Text>}
+
+            {formData.items.length > 0 && (
+              <View style={styles.cartContainer}>
+                {formData.items.map((item, index) => (
+                  <View key={index} style={styles.cartItem}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.cartItemName}>{item.itemName}</Text>
+                      <Text style={styles.cartItemPrice}>
+                        {item.quantity} × ₹{item.unitPrice?.toFixed(2)}
+                      </Text>
+                    </View>
+                    <View style={styles.cartItemRight}>
+                      <Text style={styles.cartItemTotal}>₹{item.total?.toFixed(2)}</Text>
+                      <TouchableOpacity onPress={() => removeItemFromSale(index)}>
+                        <Text style={styles.removeItem}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ))}
+
+                <View style={styles.grandTotalContainer}>
+                  <Text style={styles.grandTotalLabel}>Grand Total</Text>
+                  <Text style={styles.grandTotalValue}>₹{calculateTotal().toFixed(2)}</Text>
+                </View>
+              </View>
+            )}
+
+            <View style={styles.modalFooter}>
+              <Button variant="outline" onPress={resetForm} style={styles.modalFootBtn}>Cancel</Button>
+              <Button
+                onPress={handleSubmit}
+                loading={submitting}
+                disabled={submitting || formData.items.length === 0}
+                style={styles.modalFootBtn}
+              >
+                {editingSale ? 'Update' : 'Confirm'}
               </Button>
             </View>
           </View>
-
-          {errors.items && (
-            <View style={styles.errorBox}>
-              <Text style={styles.errorText}>{errors.items}</Text>
-            </View>
-          )}
-
-          {/* Items in Sale */}
-          {formData.items.length > 0 && (
-            <View style={styles.itemsSection}>
-              <Text style={styles.sectionTitle}>Items in Sale</Text>
-              {formData.items.map((item, index) => (
-                <View key={index} style={styles.saleItemRow}>
-                  <View style={styles.saleItemInfo}>
-                    <Text style={styles.itemName}>{item.itemName}</Text>
-                    <Text style={styles.itemDetails}>
-                      {item.quantity} × ₹{item.unitPrice?.toFixed(2)} = ₹{item.total?.toFixed(2)}
-                    </Text>
-                  </View>
-                  <View style={styles.itemActions}>
-                    <Input
-                      value={item.quantity.toString()}
-                      onChangeText={(value) => updateItemQuantity(index, value)}
-                      keyboardType="decimal-pad"
-                      containerStyle={styles.quantityUpdateInput}
-                    />
-                    <Button
-                      variant="danger"
-                      onPress={() => removeItemFromSale(index)}
-                      style={styles.removeButton}
-                    >
-                      Remove
-                    </Button>
-                  </View>
-                </View>
-              ))}
-              <View style={styles.totalBox}>
-                <Text style={styles.totalText}>
-                  Total: ₹{calculateTotal().toFixed(2)}
-                </Text>
-              </View>
-            </View>
-          )}
-
-          <View style={styles.formActions}>
-            <Button
-              variant="secondary"
-              onPress={resetForm}
-              disabled={submitting}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              onPress={handleSubmit}
-              disabled={submitting || formData.items.length === 0}
-            >
-              {submitting ? 'Saving...' : editingSale ? 'Update Sale' : 'Create Sale'}
-            </Button>
-          </View>
+          <View style={{ height: 40 }} />
         </ScrollView>
       </Modal>
 
@@ -516,8 +503,8 @@ const SalesManagement: React.FC = () => {
             sale={selectedSaleForReceipt}
             companyName={
               isSuperAdmin
-                ? (selectedOwnerId ? 'Retail Shop' : 'Retail Shop')
-                : (currentUser?.companyDetails?.name || 'My Shop')
+                ? (selectedOwnerId ? 'Cattle Feed Store' : 'Cattle Feed Store')
+                : (currentUser?.companyDetails?.name || 'Cattle Feed Store')
             }
             onClose={() => {
               setShowReceipt(false);
@@ -526,190 +513,271 @@ const SalesManagement: React.FC = () => {
           />
         )}
       </Modal>
-    </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#f8fafc',
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 18,
-    color: '#6b7280',
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1f2937',
-  },
-  typeCard: {
-    marginBottom: 16,
-  },
-  typeButtons: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  typeButton: {
-    flex: 1,
-  },
-  emptyText: {
-    textAlign: 'center',
-    padding: 20,
-    color: '#6b7280',
-  },
-  salesList: {
-    gap: 12,
-  },
-  saleItem: {
-    backgroundColor: '#ffffff',
-    padding: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    marginBottom: 8,
-  },
-  saleItemContent: {
-    marginBottom: 12,
-  },
-  saleDate: {
-    fontSize: 14,
-    color: '#1f2937',
-    marginBottom: 4,
-  },
-  saleCustomer: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1f2937',
-    marginBottom: 4,
-  },
-  saleItems: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 4,
-  },
-  saleTotal: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1f2937',
-  },
-  saleActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  actionButton: {
-    flex: 1,
-  },
-  modalContent: {
-    maxHeight: 600,
-  },
-  formRow: {
-    gap: 16,
-    marginBottom: 16,
-  },
-  addItemsSection: {
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-    paddingTop: 16,
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1f2937',
-    marginBottom: 12,
-  },
-  addItemRow: {
-    gap: 12,
-  },
-  selectItem: {
-    marginBottom: 0,
-  },
-  quantityInput: {
-    marginBottom: 0,
+  content: {
+    padding: spacing.lg,
   },
   addButton: {
-    marginTop: 8,
+    padding: spacing.sm,
   },
-  errorBox: {
-    backgroundColor: '#fee2e2',
+  addButtonIcon: {
+    fontSize: 20,
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#f1f5f9',
+    borderRadius: borderRadius.lg,
+    padding: 4,
+    marginBottom: spacing.lg,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: borderRadius.md,
+  },
+  activeTab: {
+    backgroundColor: 'white',
+    ...shadows.sm,
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.text.tertiary,
+  },
+  activeTabText: {
+    color: colors.primary[600],
+  },
+  loader: {
+    marginVertical: spacing.xxl,
+  },
+  listContainer: {
+    marginBottom: spacing.xxl,
+  },
+  listHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: spacing.md,
+    paddingHorizontal: 2,
+  },
+  listTitle: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+  },
+  listCount: {
+    fontSize: typography.fontSize.xs,
+    color: colors.text.tertiary,
+  },
+  saleCard: {
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  saleTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  customerName: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+  },
+  saleDate: {
+    fontSize: 12,
+    color: colors.text.tertiary,
+    marginTop: 2,
+  },
+  saleTotal: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[600],
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#f1f5f9',
+    marginVertical: spacing.md,
+  },
+  itemsSummary: {
+    marginBottom: spacing.md,
+  },
+  itemsText: {
+    fontSize: 13,
+    color: colors.text.secondary,
+    fontWeight: typography.fontWeight.medium,
+  },
+  phoneText: {
+    fontSize: 13,
+    color: colors.text.tertiary,
+    marginTop: 4,
+  },
+  cardActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  actionBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  receiptBtn: {
+    backgroundColor: colors.primary[50],
+  },
+  receiptBtnText: {
+    color: colors.primary[700],
+    fontSize: 13,
+    fontWeight: typography.fontWeight.bold,
+  },
+  editBtn: {
+    backgroundColor: '#f8fafc',
     borderWidth: 1,
-    borderColor: '#fca5a5',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 16,
+    borderColor: '#e2e8f0',
   },
-  errorText: {
-    color: '#dc2626',
+  editBtnText: {
+    color: colors.text.secondary,
+    fontSize: 13,
+    fontWeight: typography.fontWeight.bold,
   },
-  itemsSection: {
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-    paddingTop: 16,
-    marginBottom: 16,
+  deleteBtn: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: colors.error[100],
   },
-  saleItemRow: {
+  deleteBtnText: {
+    color: colors.error[600],
+    fontSize: 13,
+    fontWeight: typography.fontWeight.bold,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: spacing.xxl,
+    backgroundColor: 'white',
+    borderRadius: borderRadius.xl,
+    marginTop: spacing.md,
+  },
+  emptyEmoji: {
+    fontSize: 40,
+    marginBottom: spacing.md,
+    opacity: 0.2,
+  },
+  emptyText: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.tertiary,
+  },
+  modalContent: {
+    paddingVertical: spacing.sm,
+  },
+  formDivider: {
+    height: 1,
+    backgroundColor: '#f1f5f9',
+    marginVertical: spacing.lg,
+  },
+  formSectionTitle: {
+    fontSize: 14,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+    marginBottom: spacing.md,
+  },
+  addItemForm: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  addIconBtn: {
+    width: 44,
+    height: 44,
+    backgroundColor: colors.primary[500],
+    borderRadius: borderRadius.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  addIcon: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  formError: {
+    color: colors.error[600],
+    fontSize: 12,
+    marginBottom: spacing.md,
+  },
+  cartContainer: {
+    backgroundColor: '#f8fafc',
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    marginBottom: spacing.xl,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  cartItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  cartItemName: {
+    fontSize: 14,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.text.primary,
+  },
+  cartItemPrice: {
+    fontSize: 12,
+    color: colors.text.tertiary,
+    marginTop: 2,
+  },
+  cartItemRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  cartItemTotal: {
+    fontSize: 14,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+  },
+  removeItem: {
+    color: colors.error[500],
+    fontSize: 16,
+    padding: 4,
+  },
+  grandTotalContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#f9fafb',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 8,
+    marginTop: spacing.md,
+    paddingTop: spacing.sm,
   },
-  saleItemInfo: {
-    flex: 1,
+  grandTotalLabel: {
+    fontSize: 15,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
   },
-  itemName: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#1f2937',
-    marginBottom: 4,
-  },
-  itemDetails: {
-    fontSize: 14,
-    color: '#6b7280',
-  },
-  itemActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  quantityUpdateInput: {
-    width: 80,
-    marginBottom: 0,
-  },
-  removeButton: {
-    paddingHorizontal: 12,
-  },
-  totalBox: {
-    backgroundColor: '#dbeafe',
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 12,
-  },
-  totalText: {
+  grandTotalValue: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1f2937',
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[600],
   },
-  formActions: {
+  modalFooter: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 16,
+    gap: spacing.md,
+    marginTop: spacing.lg,
+  },
+  modalFootBtn: {
+    flex: 1,
   },
 });
 

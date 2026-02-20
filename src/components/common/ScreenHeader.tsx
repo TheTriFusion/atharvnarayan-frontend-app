@@ -1,8 +1,7 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ViewStyle, Platform, TextStyle } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ViewStyle, Platform, TextStyle, StyleProp } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import ProfileMenu from './ProfileMenu';
-import LanguageSwitcher from './LanguageSwitcher';
 import { colors } from '../../theme/colors';
 import { spacing, borderRadius, shadows } from '../../theme/spacing';
 import { typography } from '../../theme/typography';
@@ -12,9 +11,9 @@ interface ScreenHeaderProps {
   subtitle?: string;
   showBackButton?: boolean;
   rightAction?: React.ReactNode;
-  style?: ViewStyle;
-  titleStyle?: TextStyle;
-  subtitleStyle?: TextStyle;
+  style?: StyleProp<ViewStyle>;
+  titleStyle?: StyleProp<TextStyle>;
+  subtitleStyle?: StyleProp<TextStyle>;
   transparent?: boolean;
 }
 
@@ -53,7 +52,6 @@ const ScreenHeader: React.FC<ScreenHeaderProps> = ({
           </View>
         </View>
         <View style={styles.headerRight}>
-          <LanguageSwitcher />
           {rightAction}
           <ProfileMenu style={styles.profileMenu} />
         </View>

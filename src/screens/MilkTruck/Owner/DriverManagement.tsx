@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, Alert, Animated, Platform, StatusBar, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { getMilkTruckDrivers, getMilkTruckVehicles, getMilkTruckTrips, addMilkTruckDriver, updateMilkTruckDriver, deleteMilkTruckDriver } from '../../../utils/storage';
 import Card from '../../../components/common/Card';
@@ -10,6 +10,11 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { useOwner } from '../../../contexts/OwnerContext';
 import OwnerSelector from '../../../components/SuperAdmin/OwnerSelector';
 import { useToast } from '../../../contexts/ToastContext';
+import { colors } from '../../../theme/colors';
+import { spacing, borderRadius, shadows } from '../../../theme/spacing';
+import { typography } from '../../../theme/typography';
+import ScreenHeader from '../../../components/common/ScreenHeader';
+import LinearGradient from 'react-native-linear-gradient';
 
 const DriverManagement: React.FC = () => {
   const { isSuperAdmin } = useAuth();
@@ -28,13 +33,23 @@ const DriverManagement: React.FC = () => {
     password: '',
   });
   const [selectedVehicles, setSelectedVehicles] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Animations
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
 
   useEffect(() => {
     loadData();
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, tension: 50, friction: 8, useNativeDriver: true }),
+    ]).start();
   }, [selectedOwnerId]);
 
   const loadData = async () => {
     try {
+      setLoading(true);
       const ownerId = isSuperAdmin ? selectedOwnerId : null;
       const [driversData, vehiclesData, tripsData] = await Promise.all([
         getMilkTruckDrivers(ownerId),
@@ -50,11 +65,9 @@ const DriverManagement: React.FC = () => {
       setDrivers([]);
       setVehicles([]);
       setTrips([]);
+    } finally {
+      setLoading(false);
     }
-  };
-
-  const handleViewTrips = (driverId: string) => {
-    navigation.navigate('MilkTruckOwnerDriverTrips', { driverId });
   };
 
   const getDriverTripStats = (driverId: string) => {
@@ -88,7 +101,7 @@ const DriverManagement: React.FC = () => {
       ...formData,
       assignedVehicles: selectedVehicles,
     };
-    
+
     try {
       if (editingDriver) {
         await updateMilkTruckDriver(editingDriver._id || editingDriver.id, driverData);
@@ -97,7 +110,7 @@ const DriverManagement: React.FC = () => {
         await addMilkTruckDriver(driverData);
         success('Driver added successfully');
       }
-      
+
       resetForm();
       await loadData();
     } catch (error: any) {
@@ -150,74 +163,199 @@ const DriverManagement: React.FC = () => {
   };
 
   return (
-    <ScrollView style={styles.container}>
-      {isSuperAdmin && <OwnerSelector systemType="milkTruck" />}
-      
-      <View style={styles.header}>
-        <Text style={styles.title}>Driver Management</Text>
-        <Button
-          variant="primary"
-          onPress={() => {
-            resetForm();
-            setShowForm(true);
-          }}
-        >
-          Add New Driver
-        </Button>
-      </View>
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+      <LinearGradient
+        colors={['#8B5CF6', '#7C3AED', colors.background.primary]}
+        style={styles.backgroundGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 0.8 }}
+      />
+
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {isSuperAdmin && <OwnerSelector systemType="milkTruck" />}
+
+        <View style={styles.headerSpacer} />
+        <ScreenHeader
+          title="Team Management"
+          subtitle="Manage Drivers & Missions"
+          transparent
+          rightAction={
+            <TouchableOpacity
+              onPress={() => {
+                resetForm();
+                setShowForm(true);
+              }}
+              style={styles.addButtonCircle}
+            >
+              <Text style={styles.addButtonIcon}>+</Text>
+            </TouchableOpacity>
+          }
+        />
+
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+          {loading ? (
+            <View style={styles.loadingWrapper}>
+              <ActivityIndicator color="#8B5CF6" size="large" />
+              <Text style={styles.loadingText}>Syncing team data...</Text>
+            </View>
+          ) : !Array.isArray(drivers) || drivers.length === 0 ? (
+            <Card style={styles.emptyCard}>
+              <Text style={styles.emptyEmoji}>👥</Text>
+              <Text style={styles.emptyText}>No drivers registered</Text>
+              <Button
+                variant="primary"
+                onPress={() => setShowForm(true)}
+                style={[styles.emptyButton, { backgroundColor: '#8B5CF6' }]}
+              >
+                Hire First Driver
+              </Button>
+            </Card>
+          ) : (
+            <View style={styles.list}>
+              {drivers.map((driver) => {
+                const assignedVehicles = Array.isArray(vehicles) ? vehicles.filter(v =>
+                  driver.assignedVehicles?.includes(v._id || v.id)
+                ) : [];
+                const tripStats = getDriverTripStats(driver._id || driver.id);
+                return (
+                  <View key={driver._id || driver.id} style={styles.listItem}>
+                    <View style={styles.listItemHeader}>
+                      <View style={styles.avatarContainer}>
+                        <LinearGradient
+                          colors={['#A78BFA', '#8B5CF6']}
+                          style={styles.avatarGradient}
+                        >
+                          <Text style={styles.avatarText}>
+                            {driver.name ? driver.name.charAt(0).toUpperCase() : 'D'}
+                          </Text>
+                        </LinearGradient>
+                      </View>
+                      <View style={styles.driverMainInfo}>
+                        <Text style={styles.listItemName}>{driver.name}</Text>
+                        <View style={styles.licenseBadge}>
+                          <Text style={styles.licenseText}>🪪 {driver.licenseNumber}</Text>
+                        </View>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.phoneCircle}
+                        onPress={() => Alert.alert('Call Driver', `Calling ${driver.phoneNumber}`)}
+                      >
+                        <Text style={styles.phoneEmoji}>📞</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.statsGrid}>
+                      <View style={styles.statBox}>
+                        <Text style={styles.statVal}>{tripStats.total}</Text>
+                        <Text style={styles.statLab}>Trips</Text>
+                      </View>
+                      <View style={styles.statBox}>
+                        <Text style={[styles.statVal, { color: colors.success[600] }]}>{tripStats.completed}</Text>
+                        <Text style={styles.statLab}>Done</Text>
+                      </View>
+                      <View style={styles.statBox}>
+                        <Text style={[styles.statVal, { color: colors.warning[600] }]}>{tripStats.active}</Text>
+                        <Text style={styles.statLab}>Live</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.vehicleChipSection}>
+                      <Text style={styles.chipLabel}>AUTHORIZED FLEET</Text>
+                      <View style={styles.chipContainer}>
+                        {assignedVehicles.length > 0 ? (
+                          assignedVehicles.map(v => (
+                            <View key={v._id || v.id} style={styles.vehicleChip}>
+                              <Text style={styles.chipText}>🚛 {v.registrationNumber}</Text>
+                            </View>
+                          ))
+                        ) : (
+                          <Text style={styles.noVehiclesText}>No vehicles assigned</Text>
+                        )}
+                      </View>
+                    </View>
+
+                    <View style={styles.divider} />
+
+                    <View style={styles.listItemActions}>
+                      <TouchableOpacity
+                        onPress={() => navigation.navigate('MilkTruckOwnerDriverTrips', { driverId: driver._id || driver.id })}
+                        style={[styles.premiumActionBtn, styles.historyBtn]}
+                      >
+                        <Text style={styles.historyBtnText}>📅 Trip Log</Text>
+                      </TouchableOpacity>
+
+                      <View style={styles.actionGroupRight}>
+                        <TouchableOpacity
+                          onPress={() => handleEdit(driver)}
+                          style={styles.iconActionBtn}
+                        >
+                          <Text style={styles.iconEmoji}>✏️</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => handleDelete(driver._id || driver.id)}
+                          style={[styles.iconActionBtn, styles.dangerIconBtn]}
+                        >
+                          <Text style={styles.iconEmoji}>🗑️</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+        </Animated.View>
+      </ScrollView>
 
       <Modal
         visible={showForm}
         onClose={resetForm}
-        title={editingDriver ? 'Edit Driver' : 'Add New Driver'}
+        title={editingDriver ? 'Update Driver' : 'Add New Driver'}
       >
-        <ScrollView style={styles.modalContent}>
-          <View style={styles.form}>
+        <ScrollView style={styles.formScroll} showsVerticalScrollIndicator={false}>
+          <View style={styles.formContainer}>
             <Input
-              label="Driver Name"
+              label="Full Name"
               value={formData.name}
               onChangeText={(value) => handleInputChange('name', value)}
-              required
-              placeholder="Enter driver name"
+              placeholder="e.g. John Doe"
             />
             <Input
               label="License Number"
               value={formData.licenseNumber}
               onChangeText={(value) => handleInputChange('licenseNumber', value)}
-              required
-              placeholder="Enter license number"
+              placeholder="e.g. DL-14-1234567"
             />
             <Input
               label="Phone Number"
               value={formData.phoneNumber}
               onChangeText={(value) => handleInputChange('phoneNumber', value)}
-              required
-              placeholder="Enter phone number"
+              placeholder="10-digit number"
               keyboardType="phone-pad"
             />
             <Input
-              label="Password"
+              label="Dashboard Password"
               value={formData.password}
               onChangeText={(value) => handleInputChange('password', value)}
-              required
-              placeholder="Enter password"
+              placeholder="Set driver login password"
               secureTextEntry
             />
-            
-            <View style={styles.vehiclesSection}>
-              <Text style={styles.vehiclesLabel}>Assigned Vehicles</Text>
-              <View style={styles.vehiclesList}>
+
+            <View style={styles.vehicleSelectionSection}>
+              <Text style={styles.selectionLabel}>Assign to Vehicles</Text>
+              <View style={styles.selectionGrid}>
                 {vehicles.map((vehicle) => {
                   const vehicleId = vehicle._id || vehicle.id;
                   const isSelected = selectedVehicles.includes(vehicleId);
                   return (
                     <TouchableOpacity
                       key={vehicleId}
-                      style={[styles.vehicleItem, isSelected && styles.vehicleItemSelected]}
+                      style={[styles.selectionChip, isSelected && styles.selectionChipSelected]}
                       onPress={() => handleVehicleToggle(vehicleId)}
                     >
-                      <Text style={[styles.vehicleText, isSelected && styles.vehicleTextSelected]}>
-                        {vehicle.registrationNumber} ({vehicle.capacity}L)
+                      <Text style={[styles.selectionText, isSelected && styles.selectionTextSelected]}>
+                        {vehicle.registrationNumber}
                       </Text>
                     </TouchableOpacity>
                   );
@@ -225,174 +363,306 @@ const DriverManagement: React.FC = () => {
               </View>
             </View>
 
-            <View style={styles.formButtons}>
-              <Button variant="primary" onPress={handleSubmit}>
-                {editingDriver ? 'Update' : 'Add'} Driver
+            <View style={styles.modalFooter}>
+              <Button
+                variant="primary"
+                onPress={handleSubmit}
+                style={[styles.modalSubmitBtn, { backgroundColor: '#8B5CF6' }]}
+              >
+                {editingDriver ? 'Save Changes' : 'Hire Driver'}
               </Button>
-              <Button variant="secondary" onPress={resetForm}>
-                Cancel
-              </Button>
+              <TouchableOpacity onPress={resetForm} style={styles.cancelLink}>
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </ScrollView>
       </Modal>
-
-      <Card title="Driver List">
-        {!Array.isArray(drivers) || drivers.length === 0 ? (
-          <Text style={styles.emptyText}>No drivers found. Add your first driver to get started.</Text>
-        ) : (
-          <View style={styles.list}>
-            {drivers.map((driver) => {
-              const assignedVehicles = Array.isArray(vehicles) ? vehicles.filter(v => 
-                driver.assignedVehicles?.includes(v._id || v.id)
-              ) : [];
-              const tripStats = getDriverTripStats(driver._id || driver.id);
-              return (
-                <View key={driver._id || driver.id} style={styles.listItem}>
-                  <View style={styles.listItemContent}>
-                    <Text style={styles.listItemName}>{driver.name}</Text>
-                    <Text style={styles.listItemDetail}>📞 {driver.phoneNumber || 'N/A'}</Text>
-                    <Text style={styles.listItemDetail}>🪪 License: {driver.licenseNumber}</Text>
-                    <Text style={styles.listItemDetail}>
-                      🚛 Trips: {tripStats.total} ({tripStats.completed} completed, {tripStats.active} active)
-                    </Text>
-                    <Text style={styles.listItemDetail}>
-                      🚚 Vehicles: {assignedVehicles.length > 0
-                        ? assignedVehicles.map(v => v.registrationNumber).join(', ')
-                        : 'None'}
-                    </Text>
-                  </View>
-                  <View style={styles.listItemActions}>
-                    <Button
-                      variant="primary"
-                      onPress={() => handleViewTrips(driver._id || driver.id)}
-                      style={styles.actionButton}
-                    >
-                      View Trips
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      onPress={() => handleEdit(driver)}
-                      style={styles.actionButton}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      variant="danger"
-                      onPress={() => handleDelete(driver._id || driver.id)}
-                      style={styles.actionButton}
-                    >
-                      Delete
-                    </Button>
-                  </View>
-                </View>
-              );
-            })}
-          </View>
-        )}
-      </Card>
-    </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: colors.background.primary,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  backgroundGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: 350,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    padding: spacing.lg,
+  },
+  headerSpacer: {
+    height: Platform.OS === 'ios' ? 40 : 20,
+  },
+  addButtonCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1f2937',
-  },
-  modalContent: {
-    maxHeight: 600,
-  },
-  form: {
-    gap: 16,
-  },
-  vehiclesSection: {
-    marginBottom: 8,
-  },
-  vehiclesLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
-    marginBottom: 8,
-  },
-  vehiclesList: {
-    maxHeight: 160,
     borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 8,
-    padding: 12,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
   },
-  vehicleItem: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 4,
-    marginBottom: 4,
-    backgroundColor: '#f9fafb',
+  addButtonIcon: {
+    fontSize: 24,
+    color: '#fff',
+    fontWeight: 'bold',
   },
-  vehicleItemSelected: {
-    backgroundColor: '#dbeafe',
+  loadingWrapper: {
+    padding: spacing.xxl,
+    alignItems: 'center',
   },
-  vehicleText: {
-    fontSize: 14,
-    color: '#374151',
-  },
-  vehicleTextSelected: {
-    color: '#1e40af',
+  loadingText: {
+    marginTop: spacing.sm,
+    color: '#7C3AED',
     fontWeight: '500',
-  },
-  formButtons: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
-  },
-  emptyText: {
-    textAlign: 'center',
-    padding: 20,
-    color: '#6b7280',
   },
   list: {
-    gap: 12,
+    gap: spacing.md,
+    marginTop: spacing.md,
   },
   listItem: {
-    backgroundColor: '#ffffff',
-    padding: 16,
-    borderRadius: 8,
+    backgroundColor: '#fff',
+    borderRadius: borderRadius.xl,
+    padding: spacing.lg,
+    ...shadows.md,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    marginBottom: 8,
+    borderColor: 'rgba(139, 92, 246, 0.1)',
   },
-  listItemContent: {
-    marginBottom: 12,
+  listItemHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  avatarContainer: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    overflow: 'hidden',
+    ...shadows.sm,
+  },
+  avatarGradient: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarText: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  driverMainInfo: {
+    flex: 1,
+    marginLeft: spacing.md,
   },
   listItemName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1f2937',
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[900],
     marginBottom: 4,
   },
-  listItemDetail: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 2,
+  licenseBadge: {
+    backgroundColor: colors.background.secondary,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+  },
+  licenseText: {
+    fontSize: 10,
+    color: colors.text.secondary,
+    fontWeight: 'bold',
+  },
+  phoneCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.success[50],
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  phoneEmoji: {
+    fontSize: 16,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    backgroundColor: colors.background.secondary,
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  statBox: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statVal: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.primary[800],
+  },
+  statLab: {
+    fontSize: 10,
+    color: colors.text.tertiary,
+    fontWeight: 'bold',
+    textTransform: 'uppercase',
+  },
+  vehicleChipSection: {
+    marginBottom: spacing.md,
+  },
+  chipLabel: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: colors.text.tertiary,
+    marginBottom: spacing.xs,
+  },
+  chipContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  vehicleChip: {
+    backgroundColor: 'rgba(139, 92, 246, 0.08)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.15)',
+  },
+  chipText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#7C3AED',
+  },
+  noVehiclesText: {
+    fontSize: 12,
+    color: colors.text.tertiary,
+    fontStyle: 'italic',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    marginVertical: spacing.sm,
   },
   listItemActions: {
     flexDirection: 'row',
-    gap: 8,
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  actionButton: {
-    flex: 1,
+  premiumActionBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+  },
+  historyBtn: {
+    backgroundColor: '#fff',
+    borderColor: 'rgba(139, 92, 246, 0.2)',
+  },
+  historyBtnText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#7C3AED',
+  },
+  actionGroupRight: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  iconActionBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.background.secondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dangerIconBtn: {
+    backgroundColor: colors.error[50],
+  },
+  iconEmoji: {
+    fontSize: 16,
+  },
+  formScroll: {
+    maxHeight: 550,
+  },
+  formContainer: {
+    padding: spacing.md,
+  },
+  vehicleSelectionSection: {
+    marginTop: spacing.md,
+  },
+  selectionLabel: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: colors.text.secondary,
+    marginBottom: spacing.sm,
+  },
+  selectionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  selectionChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: colors.background.secondary,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border.light,
+  },
+  selectionChipSelected: {
+    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+    borderColor: '#8B5CF6',
+  },
+  selectionText: {
+    fontSize: 13,
+    color: colors.text.primary,
+  },
+  selectionTextSelected: {
+    fontWeight: 'bold',
+    color: '#7C3AED',
+  },
+  modalFooter: {
+    marginTop: spacing.xl,
+    gap: spacing.md,
+    alignItems: 'center',
+  },
+  modalSubmitBtn: {
+    width: '100%',
+  },
+  cancelLink: {
+    padding: spacing.sm,
+  },
+  cancelText: {
+    color: colors.text.tertiary,
+    fontWeight: '600',
+  },
+  emptyCard: {
+    padding: spacing.xxl,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: borderRadius.xl,
+  },
+  emptyEmoji: {
+    fontSize: 60,
+    marginBottom: spacing.md,
+    opacity: 0.5,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.text.tertiary,
+    marginBottom: spacing.xl,
+  },
+  emptyButton: {
+    width: '100%',
   },
 });
 

@@ -31,12 +31,13 @@ const MilkTruckOwnerDashboard: React.FC = () => {
   const navigation = useNavigation<any>();
   const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
-  const [quickActionsExpanded, setQuickActionsExpanded] = useState(false);
+  const [quickActionsExpanded, setQuickActionsExpanded] = useState(true); // Default to expanded for better visibility
 
   // 3D Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
   const quickActionsRotate = useRef(new Animated.Value(0)).current;
+  const quickActionsScale = useRef(new Animated.Value(0)).current; // For staggered entrance
   const driverOverviewScale = useRef(new Animated.Value(1)).current;
   const notificationsCardScale = useRef(new Animated.Value(1)).current;
   const tripsCardScale = useRef(new Animated.Value(1)).current;
@@ -73,6 +74,12 @@ const MilkTruckOwnerDashboard: React.FC = () => {
         toValue: 0,
         tension: 50,
         friction: 8,
+        useNativeDriver: true,
+      }),
+      Animated.timing(quickActionsScale, {
+        toValue: 1,
+        duration: 800,
+        delay: 300,
         useNativeDriver: true,
       }),
     ]).start();
@@ -229,135 +236,238 @@ const MilkTruckOwnerDashboard: React.FC = () => {
               <TouchableOpacity
                 style={styles.accordionHeader}
                 onPress={() => {
-                  Animated.spring(quickActionsRotate, {
-                    toValue: quickActionsExpanded ? 0 : 1,
-                    tension: 100,
-                    friction: 8,
-                    useNativeDriver: true,
-                  }).start();
+                  const toValue = quickActionsExpanded ? 0 : 1;
+                  Animated.parallel([
+                    Animated.spring(quickActionsRotate, {
+                      toValue,
+                      tension: 100,
+                      friction: 8,
+                      useNativeDriver: true,
+                    }),
+                    Animated.timing(quickActionsScale, {
+                      toValue,
+                      duration: 400,
+                      useNativeDriver: true,
+                    })
+                  ]).start();
                   setQuickActionsExpanded(!quickActionsExpanded);
                 }}
                 activeOpacity={0.7}
               >
-                <Text style={styles.sectionTitle}>Quick Actions</Text>
-                <Animated.Text
+                <View style={styles.sectionTitleContainer}>
+                  <LinearGradient
+                    colors={[colors.primary[600], colors.primary[400]]}
+                    style={styles.sectionIconTitle}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                  >
+                    <Text style={styles.sectionIconEmoji}>⚡</Text>
+                  </LinearGradient>
+                  <Text style={styles.sectionTitle}>Quick Actions</Text>
+                </View>
+                <Animated.View
                   style={[
-                    styles.accordionIcon,
+                    styles.accordionIconWrapper,
                     {
                       transform: [
                         {
                           rotate: quickActionsRotate.interpolate({
                             inputRange: [0, 1],
-                            outputRange: ['0deg', '90deg'],
+                            outputRange: ['0deg', '180deg'],
                           }),
                         },
                       ],
                     },
                   ]}
                 >
-                  {quickActionsExpanded ? '▼' : '▶'}
-                </Animated.Text>
+                  <Text style={styles.accordionIcon}>▼</Text>
+                </Animated.View>
               </TouchableOpacity>
               {quickActionsExpanded && (
-                <Animated.View
-                  style={[
-                    styles.actionsGrid,
-                    {
-                      opacity: quickActionsRotate.interpolate({
-                        inputRange: [0, 0.5, 1],
-                        outputRange: [0, 0.5, 1],
-                      }),
-                    },
-                  ]}
+                <View style={styles.actionsGridContainer}>
+                  <View style={styles.actionsGrid}>
+                    {[
+                      { label: 'BMCs', icon: '🏭', color: ['#6366F1', '#4F46E5'], screen: 'MilkTruckOwnerBMCs' },
+                      { label: 'Vehicles', icon: '🚚', color: ['#0EA5E9', '#0284C7'], screen: 'MilkTruckOwnerVehicles' },
+                      { label: 'Drivers', icon: '👥', color: ['#8B5CF6', '#7C3AED'], screen: 'MilkTruckOwnerDrivers' },
+                      { label: 'Routes', icon: '🛣️', color: ['#10B981', '#059669'], screen: 'MilkTruckOwnerRoutes' },
+                      { label: 'Pricing', icon: '💰', color: ['#F59E0B', '#D97706'], screen: 'MilkTruckOwnerPricing' },
+                      { label: 'Alerts', icon: '🗑️', color: ['#EF4444', '#DC2626'], action: clearNotifications, isDanger: true },
+                    ].map((action, index) => (
+                      <Animated.View
+                        key={index}
+                        style={[
+                          styles.actionItem,
+                          {
+                            opacity: quickActionsScale,
+                            transform: [
+                              { scale: quickActionsScale },
+                              {
+                                translateY: quickActionsScale.interpolate({
+                                  inputRange: [0, 1],
+                                  outputRange: [20, 0],
+                                }),
+                              },
+                            ],
+                          },
+                        ]}
+                      >
+                        <TouchableOpacity
+                          style={styles.actionButtonPremium}
+                          onPress={() => {
+                            if (action.action) {
+                              action.action();
+                            } else if (action.screen) {
+                              navigation.navigate(action.screen);
+                            }
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <LinearGradient
+                            colors={action.color}
+                            style={styles.actionIconGradient}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                          >
+                            <Text style={styles.actionIconText}>{action.icon}</Text>
+                          </LinearGradient>
+                          <Text style={[styles.actionLabelText, action.isDanger && { color: colors.error[600] }]}>
+                            {action.label}
+                          </Text>
+                        </TouchableOpacity>
+                      </Animated.View>
+                    ))}
+                  </View>
+                </View>
+              )}
+            </Card>
+          </Animated.View>
+
+          {/* Real-time Notifications & Map Section */}
+          <Animated.View
+            style={[
+              {
+                opacity: fadeAnim,
+                transform: [
+                  { translateY: slideAnim },
+                  { scale: notificationsCardScale },
+                ],
+              },
+            ]}
+          >
+            <Card variant="elevated" style={styles.notificationsCard3D}>
+              <View style={styles.notificationsHeader}>
+                <View style={styles.sectionTitleContainer}>
+                  <LinearGradient
+                    colors={['#3B82F6', '#2563EB']}
+                    style={styles.sectionIconTitle}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                  >
+                    <Text style={styles.sectionIconEmoji}>📡</Text>
+                  </LinearGradient>
+                  <Text style={styles.sectionTitle}>Live Fleet Tracking</Text>
+                </View>
+                {notifications.length > 0 && (
+                  <TouchableOpacity onPress={clearNotifications} style={styles.clearBtn}>
+                    <Text style={styles.clearBtnText}>Clear</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* Mock Map UI */}
+              <View style={styles.mapPlaceholderWrapper}>
+                <LinearGradient
+                  colors={['#E0F2FE', '#F0F9FF']}
+                  style={styles.mockMap}
                 >
-                  <View style={styles.actionItem}>
-                    <TouchableOpacity
-                      style={styles.actionButtonCompact}
-                      onPress={() => {
-                        navigation.navigate('MilkTruckOwnerBMCs');
-                        setQuickActionsExpanded(false);
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <View style={[styles.actionIconContainer, { backgroundColor: colors.primary[50] }]}>
-                        <Text style={styles.actionIcon}>🏭</Text>
-                      </View>
-                      <Text style={styles.actionText}>BMCs</Text>
-                    </TouchableOpacity>
+                  {/* Grid Lines */}
+                  {[...Array(5)].map((_, i) => (
+                    <View key={`v-${i}`} style={[styles.mapGridLineV, { left: `${(i + 1) * 20}%` }]} />
+                  ))}
+                  {[...Array(4)].map((_, i) => (
+                    <View key={`h-${i}`} style={[styles.mapGridLineH, { top: `${(i + 1) * 20}%` }]} />
+                  ))}
+
+                  {/* Route Paths */}
+                  <View style={styles.mapRouteLine} />
+
+                  {/* Active Trucks / Points */}
+                  <View style={[styles.mapPoint, { top: '30%', left: '40%' }]}>
+                    <View style={styles.pingAnimation} />
+                    <View style={styles.pointDot} />
+                    <View style={styles.pointLabel}>
+                      <Text style={styles.pointLabelText}>Mh1987</Text>
+                    </View>
                   </View>
-                  <View style={styles.actionItem}>
-                    <TouchableOpacity
-                      style={styles.actionButtonCompact}
-                      onPress={() => {
-                        navigation.navigate('MilkTruckOwnerVehicles');
-                        setQuickActionsExpanded(false);
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <View style={[styles.actionIconContainer, { backgroundColor: '#E0F2FE' }]}>
-                        <Text style={styles.actionIcon}>🚚</Text>
-                      </View>
-                      <Text style={styles.actionText}>Vehicles</Text>
-                    </TouchableOpacity>
+
+                  <View style={[styles.mapPoint, { top: '60%', left: '70%', opacity: 0.6 }]}>
+                    <View style={[styles.pointDot, { backgroundColor: colors.primary[400] }]} />
+                    <View style={styles.pointLabel}>
+                      <Text style={styles.pointLabelText}>Mh4567</Text>
+                    </View>
                   </View>
-                  <View style={styles.actionItem}>
-                    <TouchableOpacity
-                      style={styles.actionButtonCompact}
-                      onPress={() => {
-                        navigation.navigate('MilkTruckOwnerDrivers');
-                        setQuickActionsExpanded(false);
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <View style={[styles.actionIconContainer, { backgroundColor: '#F0F9FF' }]}>
-                        <Text style={styles.actionIcon}>👥</Text>
-                      </View>
-                      <Text style={styles.actionText}>Drivers</Text>
-                    </TouchableOpacity>
+
+                  <View style={styles.mapOverlayIcon}>
+                    <Text style={styles.mapOverlayEmoji}>📍</Text>
                   </View>
-                  <View style={styles.actionItem}>
-                    <TouchableOpacity
-                      style={styles.actionButtonCompact}
-                      onPress={() => {
-                        navigation.navigate('MilkTruckOwnerRoutes');
-                        setQuickActionsExpanded(false);
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <View style={[styles.actionIconContainer, { backgroundColor: '#E0F7FA' }]}>
-                        <Text style={styles.actionIcon}>🛣️</Text>
+                </LinearGradient>
+              </View>
+
+              <Text style={styles.realTimeUpdateLabel}>RECENT ACTIVITY</Text>
+
+              {notifications.length > 0 ? (
+                <ScrollView style={styles.notificationsList} nestedScrollEnabled>
+                  {notifications.map((notif: any) => (
+                    <View key={notif.id} style={styles.notificationItem}>
+                      <View style={styles.notifHeaderMain}>
+                        <View style={styles.notifStatusPulse} />
+                        <Text style={styles.notificationMessage}>{notif.message}</Text>
                       </View>
-                      <Text style={styles.actionText}>Routes</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <View style={styles.actionItem}>
-                    <TouchableOpacity
-                      style={styles.actionButtonCompact}
-                      onPress={() => {
-                        navigation.navigate('MilkTruckOwnerPricing');
-                        setQuickActionsExpanded(false);
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <View style={[styles.actionIconContainer, { backgroundColor: '#FFF7ED' }]}>
-                        <Text style={styles.actionIcon}>💰</Text>
-                      </View>
-                      <Text style={styles.actionText}>Pricing</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <View style={styles.actionItem}>
-                    <TouchableOpacity
-                      style={[styles.actionButtonCompact, { borderColor: colors.error[100] }]}
-                      onPress={clearNotifications}
-                      activeOpacity={0.8}
-                    >
-                      <View style={[styles.actionIconContainer, { backgroundColor: colors.error[50] }]}>
-                        <Text style={styles.actionIcon}>🗑️</Text>
-                      </View>
-                      <Text style={[styles.actionText, { color: colors.error[600] }]}>Clear Alerts</Text>
-                    </TouchableOpacity>
-                  </View>
-                </Animated.View>
+
+                      {/* Handle notification format */}
+                      {(notif.totals || notif.summary) && (
+                        <View style={styles.notificationDetails}>
+                          <View style={styles.notifStatRow}>
+                            <View style={styles.notifStat}>
+                              <Text style={styles.notifStatLabel}>TOTAL MILK</Text>
+                              <Text style={styles.notifStatValue}>
+                                {(notif.totals?.totalMilk || notif.summary?.totalMilk)?.toFixed(2) || '0.00'}L
+                              </Text>
+                            </View>
+                            <View style={styles.notifStat}>
+                              <Text style={styles.notifStatLabel}>EXPENSES</Text>
+                              <Text style={styles.notifStatValue}>
+                                ₹{(notif.totals?.totalExpenses || notif.summary?.totalExpenses)?.toFixed(2) || '0.00'}
+                              </Text>
+                            </View>
+                            {notif.variance && (
+                              <View style={styles.notifStat}>
+                                <Text style={styles.notifStatLabel}>VARIANCE</Text>
+                                <Text style={[
+                                  styles.notifStatValue,
+                                  { color: notif.variance.milk < 0 ? colors.error[600] : colors.success[600] }
+                                ]}>
+                                  {notif.variance.milk > 0 ? '+' : ''}{notif.variance.milk?.toFixed(2) || '0.00'}L
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                        </View>
+                      )}
+
+                      <Text style={styles.notificationTime}>
+                        {new Date(notif.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                    </View>
+                  ))}
+                </ScrollView>
+              ) : (
+                <View style={styles.emptyNotifications}>
+                  <Text style={styles.emptyNotificationsText}>
+                    Awaiting live updates from BMC network...
+                  </Text>
+                </View>
               )}
             </Card>
           </Animated.View>
@@ -382,7 +492,17 @@ const MilkTruckOwnerDashboard: React.FC = () => {
               ]}
             >
               <Card variant="elevated" style={styles.driverOverviewCard3D}>
-                <Text style={styles.sectionTitle}>Driver Overview</Text>
+                <View style={styles.sectionTitleContainer}>
+                  <LinearGradient
+                    colors={['#8B5CF6', '#7C3AED']}
+                    style={styles.sectionIconTitle}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                  >
+                    <Text style={styles.sectionIconEmoji}>👥</Text>
+                  </LinearGradient>
+                  <Text style={styles.sectionTitle}>Driver Overview</Text>
+                </View>
                 <View style={styles.driversGrid}>
                   {drivers.map((driver) => {
                     const driverTrips = completedTrips.filter((t: any) => {
@@ -456,90 +576,6 @@ const MilkTruckOwnerDashboard: React.FC = () => {
               </Card>
             </Animated.View>
           )}
-
-          {/* Real-time Notifications */}
-          <Animated.View
-            style={[
-              {
-                opacity: fadeAnim,
-                transform: [
-                  { translateY: slideAnim },
-                  { scale: notificationsCardScale },
-                ],
-              },
-            ]}
-          >
-            <Card variant="elevated" style={styles.notificationsCard3D}>
-              <View style={styles.notificationsHeader}>
-                <Text style={styles.sectionTitle}>Real-time BMC Collection Updates</Text>
-                {notifications.length > 0 && (
-                  <Button onPress={clearNotifications} variant="outline" size="sm">
-                    Clear All
-                  </Button>
-                )}
-              </View>
-              {notifications.length > 0 ? (
-                <ScrollView style={styles.notificationsList} nestedScrollEnabled>
-                  {notifications.map((notif: any) => (
-                    <View key={notif.id} style={styles.notificationItem}>
-                      <Text style={styles.notificationMessage}>{notif.message}</Text>
-
-                      {/* Handle old notification format (totals) */}
-                      {notif.totals && (
-                        <View style={styles.notificationDetails}>
-                          <Text style={styles.notificationDetailText}>
-                            Total Milk: <Text style={styles.notificationDetailValue}>{notif.totals.totalMilk?.toFixed(2) || '0.00'}L</Text>
-                          </Text>
-                          <Text style={styles.notificationDetailText}>
-                            Total Expenses: <Text style={styles.notificationDetailValue}>₹{notif.totals.totalExpenses?.toFixed(2) || '0.00'}</Text>
-                          </Text>
-                        </View>
-                      )}
-
-                      {/* Handle new notification format (summary) */}
-                      {notif.summary && (
-                        <View style={styles.notificationDetails}>
-                          <Text style={styles.notificationDetailText}>
-                            Total Milk: <Text style={styles.notificationDetailValue}>{notif.summary.totalMilk?.toFixed(2) || '0.00'}L</Text>
-                          </Text>
-                          <Text style={styles.notificationDetailText}>
-                            Total Expenses: <Text style={styles.notificationDetailValue}>₹{notif.summary.totalExpenses?.toFixed(2) || '0.00'}</Text>
-                          </Text>
-                          {notif.summary.finalPrice && (
-                            <Text style={styles.notificationDetailText}>
-                              Final Price: <Text style={styles.notificationDetailValue}>₹{notif.summary.finalPrice?.toFixed(2)}</Text>
-                            </Text>
-                          )}
-                        </View>
-                      )}
-
-                      {notif.variance && (
-                        <View style={styles.varianceContainer}>
-                          <Text style={styles.varianceLabel}>Variance:</Text>
-                          <Text style={[
-                            styles.varianceValue,
-                            { color: notif.variance.milk < 0 ? colors.error[600] : colors.success[600] }
-                          ]}>
-                            {notif.variance.milk > 0 ? '+' : ''}{notif.variance.milk?.toFixed(2) || '0.00'}L
-                          </Text>
-                        </View>
-                      )}
-
-                      <Text style={styles.notificationTime}>
-                        {new Date(notif.timestamp).toLocaleString()}
-                      </Text>
-                    </View>
-                  ))}
-                </ScrollView>
-              ) : (
-                <View style={styles.emptyNotifications}>
-                  <Text style={styles.emptyNotificationsText}>
-                    No recent updates. BMC collection data will appear here in real-time.
-                  </Text>
-                </View>
-              )}
-            </Card>
-          </Animated.View>
 
           {/* Trip Completed History */}
           {completedTrips.length > 0 && (
@@ -771,27 +807,52 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: spacing.sm,
   },
+  sectionTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  sectionIconTitle: {
+    width: 32,
+    height: 32,
+    borderRadius: borderRadius.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sectionIconEmoji: {
+    fontSize: 16,
+  },
   sectionTitle: {
     fontSize: typography.fontSize.lg,
     fontWeight: typography.fontWeight.bold,
     color: colors.primary[900],
-    marginBottom: spacing.lg,
+  },
+  accordionIconWrapper: {
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   accordionIcon: {
     fontSize: typography.fontSize.sm,
     color: colors.primary[600],
   },
+  actionsGridContainer: {
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.primary[50],
+  },
   actionsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    paddingTop: spacing.sm,
   },
   actionItem: {
     width: '31%',
     marginBottom: spacing.md,
   },
-  actionButtonCompact: {
+  actionButtonPremium: {
     backgroundColor: 'white',
     borderRadius: borderRadius.lg,
     padding: spacing.sm,
@@ -799,7 +860,29 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: colors.primary[50],
+    shadowColor: colors.primary[500],
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  actionIconGradient: {
+    width: 42,
+    height: 42,
+    borderRadius: borderRadius.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
     ...shadows.sm,
+  },
+  actionIconText: {
+    fontSize: 18,
+  },
+  actionLabelText: {
+    fontSize: 11,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.primary[900],
+    textAlign: 'center',
   },
   actionIconContainer: {
     width: 44,
@@ -842,23 +925,161 @@ const styles = StyleSheet.create({
   },
   notificationItem: {
     padding: spacing.md,
-    backgroundColor: colors.background.secondary,
+    backgroundColor: colors.background.primary,
     borderRadius: borderRadius.lg,
     marginBottom: spacing.sm,
-    borderLeftWidth: 4,
-    borderLeftColor: colors.primary[500],
+    borderWidth: 1,
+    borderColor: colors.primary[50],
   },
-  notificationMessage: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.bold,
-    color: colors.primary[900],
+  notifHeaderMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
     marginBottom: spacing.xs,
   },
+  notifStatusPulse: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.success[500],
+  },
+  notificationMessage: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: colors.primary[900],
+    flex: 1,
+  },
+  notifStatRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  notifStat: {
+    flex: 1,
+  },
+  notifStatLabel: {
+    fontSize: 8,
+    fontWeight: 'bold',
+    color: colors.text.tertiary,
+    marginBottom: 2,
+    letterSpacing: 0.5,
+  },
+  notifStatValue: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: colors.primary[700],
+  },
   notificationTime: {
-    fontSize: typography.fontSize.xs - 1,
+    fontSize: 10,
     color: colors.text.tertiary,
     marginTop: spacing.xs,
     textAlign: 'right',
+    fontWeight: '500',
+  },
+  mapPlaceholderWrapper: {
+    height: 140,
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
+    marginBottom: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.primary[50],
+  },
+  mockMap: {
+    flex: 1,
+    position: 'relative',
+  },
+  mapGridLineV: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 1,
+    backgroundColor: 'rgba(59, 130, 246, 0.05)',
+  },
+  mapGridLineH: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: 'rgba(59, 130, 246, 0.05)',
+  },
+  mapRouteLine: {
+    position: 'absolute',
+    top: '40%',
+    left: '20%',
+    right: '20%',
+    height: 3,
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    borderRadius: 2,
+    transform: [{ rotate: '25deg' }],
+  },
+  mapPoint: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pointDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.primary[600],
+    borderWidth: 2,
+    borderColor: 'white',
+  },
+  pingAnimation: {
+    position: 'absolute',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.primary[400],
+    opacity: 0.3,
+  },
+  pointLabel: {
+    position: 'absolute',
+    top: 14,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    ...shadows.sm,
+  },
+  pointLabelText: {
+    fontSize: 8,
+    fontWeight: 'bold',
+    color: colors.primary[900],
+  },
+  mapOverlayIcon: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    backgroundColor: 'white',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...shadows.sm,
+  },
+  mapOverlayEmoji: {
+    fontSize: 14,
+  },
+  realTimeUpdateLabel: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: colors.primary[500],
+    letterSpacing: 1.5,
+    marginBottom: spacing.md,
+    textAlign: 'center',
+  },
+  clearBtn: {
+    backgroundColor: colors.primary[50],
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: borderRadius.full,
+  },
+  clearBtnText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: colors.primary[600],
   },
   tripsCard: {
     marginBottom: spacing.md,
@@ -935,27 +1156,28 @@ const styles = StyleSheet.create({
   driverCard3D: {
     backgroundColor: 'white',
     borderRadius: borderRadius.lg,
-    padding: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     borderWidth: 1,
     borderColor: colors.primary[50],
-    ...shadows.md,
+    ...shadows.sm,
   },
   driverCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   avatarContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: colors.primary[100],
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: spacing.md,
   },
   avatarText: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: typography.fontWeight.bold,
     color: colors.primary[700],
   },
@@ -996,33 +1218,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     backgroundColor: colors.background.secondary,
-    borderRadius: borderRadius.md,
-    padding: spacing.sm,
+    borderRadius: borderRadius.sm,
+    padding: spacing.xs,
   },
   driverStatItem: {
     alignItems: 'center',
     flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 4,
   },
   statIconBox: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 4,
   },
   statIconMini: {
     fontSize: 12,
   },
   driverStatValue: {
-    fontSize: typography.fontSize.sm,
+    fontSize: 12,
     fontWeight: typography.fontWeight.bold,
   },
   driverStatLabel: {
-    fontSize: 10,
+    fontSize: 9,
     color: colors.text.tertiary,
     textTransform: 'uppercase',
-    marginTop: 2,
   },
   notificationsList: {
     maxHeight: 400,

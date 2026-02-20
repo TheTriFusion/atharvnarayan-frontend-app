@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, TouchableOpacity, Alert, Platform } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -11,14 +11,25 @@ import {
 } from '../../../utils/storage';
 import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
+import ScreenHeader from '../../../components/common/ScreenHeader';
+import { colors } from '../../../theme/colors';
+import { spacing, borderRadius, shadows } from '../../../theme/spacing';
+import { typography } from '../../../theme/typography';
+import LinearGradient from 'react-native-linear-gradient';
+
+const QUICK_ACTIONS = [
+  { id: 'sales', title: 'New Sale', icon: '💰', route: 'CattleFeedOwnerSales', color: ['#10b981', '#059669'], sub: 'Record sale' },
+  { id: 'inventory', title: 'Inventory', icon: '📦', route: 'CattleFeedOwnerInventory', color: ['#3b82f6', '#2563eb'], sub: 'Stock count' },
+  { id: 'orders', title: 'Orders', icon: '📑', route: 'CattleFeedOwnerOrders', color: ['#f59e0b', '#d97706'], sub: 'Manage orders' },
+  { id: 'finance', title: 'Finance', icon: '📊', route: 'CattleFeedOwnerFinance', color: ['#8b5cf6', '#7c3aed'], sub: 'Cash flow' },
+];
 
 const CattleFeedOwnerDashboard: React.FC = () => {
-  const { isSuperAdmin, user, logout } = useAuth();
+  const { isSuperAdmin, user } = useAuth();
   const { selectedOwnerId } = useOwner();
   const navigation = useNavigation<any>();
   const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
-  const [showMenu, setShowMenu] = useState(false);
   const [stats, setStats] = useState({
     totalInventoryItems: 0,
     totalStockValue: 0,
@@ -91,6 +102,7 @@ const CattleFeedOwnerDashboard: React.FC = () => {
       setLowStockItems(
         inventory
           .filter((item: any) => item.quantity < 50)
+          .sort((a: any, b: any) => a.quantity - b.quantity)
           .slice(0, 5)
       );
     } catch (err: any) {
@@ -109,415 +121,522 @@ const CattleFeedOwnerDashboard: React.FC = () => {
     setRefreshing(false);
   };
 
-  const handleLogout = async () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-          onPress: () => setShowMenu(false),
-        },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await logout();
-              setShowMenu(false);
-              navigation.reset({
-                index: 0,
-                routes: [{ name: 'Login' }],
-              });
-            } catch (error) {
-              console.error('Logout failed:', error);
-              Alert.alert('Error', 'Failed to log out');
-            }
-          },
-        },
-      ]
-    );
-  };
-
   if (loading && stats.totalInventoryItems === 0) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#3b82f6" />
+        <ActivityIndicator size="large" color={colors.primary[500]} />
         <Text style={styles.loadingText}>Loading dashboard...</Text>
       </View>
     );
   }
 
-  if (error && stats.totalInventoryItems === 0) {
-    return (
-      <View style={styles.errorContainer}>
-        <Card>
-          <Text style={styles.errorText}>{error}</Text>
-          <Button onPress={loadStats} style={styles.retryButton}>
-            Retry
-          </Button>
-        </Card>
-      </View>
-    );
-  }
-
   return (
-    <ScrollView
-      style={styles.container}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-      }
-    >
-      <View style={styles.headerContainer}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Dashboard</Text>
-          <View style={styles.headerRight}>
-            {loading && (
-              <View style={styles.loadingIndicator}>
-                <ActivityIndicator size="small" color="#3b82f6" />
-                <Text style={styles.loadingLabel}>Loading...</Text>
+    <View style={styles.container}>
+      <ScreenHeader
+        title="Dashboard"
+        subtitle={isSuperAdmin ? "Cattle Feed Management" : user?.businessName || "Cattle Feed Shop"}
+        rightAction={
+          <TouchableOpacity onPress={loadStats} style={styles.headerAction}>
+            <Text style={styles.headerActionIcon}>🔄</Text>
+          </TouchableOpacity>
+        }
+      />
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} colors={[colors.primary[500]]} />
+        }
+      >
+        {/* Welcome Section */}
+        <View style={styles.welcomeSection}>
+          <Text style={styles.welcomeText}>Welcome back,</Text>
+          <Text style={styles.userName}>{user?.name || "Partner"} 👋</Text>
+        </View>
+
+        {/* Global Summary */}
+        <View style={styles.summaryContainer}>
+          <LinearGradient
+            colors={['#1e40af', '#1e3a8a']}
+            style={styles.mainRevenueCard}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <View style={styles.revenueHeader}>
+              <Text style={styles.revenueTitle}>Total Revenue</Text>
+              <View style={styles.revenueIconContainer}>
+                <Text style={styles.revenueIcon}>₹</Text>
               </View>
-            )}
-            {!loading && (
-              <Button onPress={loadStats} variant="secondary" style={styles.refreshButton}>
-                🔄 Refresh
-              </Button>
-            )}
+            </View>
+            <Text style={styles.revenueValue}>₹{stats.totalRevenue.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</Text>
+            <View style={styles.revenueStats}>
+              <View style={styles.revenueStatItem}>
+                <Text style={styles.revenueStatLabel}>Wholesale</Text>
+                <Text style={styles.revenueStatValue}>₹{stats.wholesaleRevenue.toLocaleString('en-IN')}</Text>
+              </View>
+              <View style={styles.revenueStatDivider} />
+              <View style={styles.revenueStatItem}>
+                <Text style={styles.revenueStatLabel}>Retail</Text>
+                <Text style={styles.revenueStatValue}>₹{stats.retailRevenue.toLocaleString('en-IN')}</Text>
+              </View>
+            </View>
+          </LinearGradient>
+        </View>
+
+        {/* Quick Stats Grid */}
+        <View style={styles.statsGrid}>
+          <View style={styles.statRow}>
+            <Card style={styles.statCard}>
+              <View style={[styles.statIconBox, { backgroundColor: colors.primary[50] }]}>
+                <Text style={styles.statEmoji}>📦</Text>
+              </View>
+              <Text style={styles.statNum}>{stats.totalInventoryItems}</Text>
+              <Text style={styles.statDesc}>Prod. Items</Text>
+            </Card>
+            <Card style={styles.statCard}>
+              <View style={[styles.statIconBox, { backgroundColor: colors.success[50] }]}>
+                <Text style={styles.statEmoji}>💰</Text>
+              </View>
+              <Text style={styles.statNum}>{stats.totalSales}</Text>
+              <Text style={styles.statDesc}>Sales Made</Text>
+            </Card>
+          </View>
+          <View style={styles.statRow}>
+            <Card style={styles.statCard}>
+              <View style={[styles.statIconBox, { backgroundColor: colors.warning[50] }]}>
+                <Text style={styles.statEmoji}>⏳</Text>
+              </View>
+              <Text style={styles.statNum}>{stats.pendingOrders}</Text>
+              <Text style={styles.statDesc}>Pending Ord.</Text>
+            </Card>
+            <Card style={[styles.statCard, stats.lowStockItems > 0 && styles.alertCard]}>
+              <View style={[styles.statIconBox, { backgroundColor: stats.lowStockItems > 0 ? colors.error[50] : colors.secondary[100] }]}>
+                <Text style={styles.statEmoji}>⚠️</Text>
+              </View>
+              <Text style={[styles.statNum, stats.lowStockItems > 0 && { color: colors.error[600] }]}>{stats.lowStockItems}</Text>
+              <Text style={styles.statDesc}>Low Stock</Text>
+            </Card>
+          </View>
+        </View>
+
+        {/* Quick Actions */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Quick Actions</Text>
+        </View>
+        <View style={styles.actionsGrid}>
+          {QUICK_ACTIONS.map((action) => (
             <TouchableOpacity
-              style={styles.profileButton}
-              onPress={() => setShowMenu(!showMenu)}
+              key={action.id}
+              style={styles.actionItem}
+              onPress={() => navigation.navigate(action.route)}
+              activeOpacity={0.7}
             >
-              <Text style={styles.profileIcon} allowFontScaling={false}>👤</Text>
+              <LinearGradient
+                colors={action.color}
+                style={styles.actionIcon}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <Text style={styles.actionEmoji}>{action.icon}</Text>
+              </LinearGradient>
+              <Text style={styles.actionText}>{action.title}</Text>
+              <Text style={styles.actionSubText}>{action.sub}</Text>
             </TouchableOpacity>
-          </View>
+          ))}
         </View>
 
-        {showMenu && (
-          <View style={styles.menuDropdown}>
-            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); /* Navigate to Profile */ }}>
-              <Text style={styles.menuText}>Profile</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); /* Navigate to Settings */ }}>
-              <Text style={styles.menuText}>Settings</Text>
-            </TouchableOpacity>
-            <View style={styles.menuDivider} />
-            <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
-              <Text style={[styles.menuText, styles.logoutText]}>Log Out</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-
-      {/* Stats Cards */}
-      <View style={styles.statsContainer}>
-        <Card style={styles.statCard}>
-          <Text style={[styles.statValue, { color: '#2563eb' }]}>
-            {stats.totalInventoryItems}
-          </Text>
-          <Text style={styles.statLabel}>Total Inventory Items</Text>
-        </Card>
-        <Card style={styles.statCard}>
-          <Text style={[styles.statValue, { color: '#16a34a' }]}>
-            ₹{stats.totalStockValue.toFixed(2)}
-          </Text>
-          <Text style={styles.statLabel}>Total Stock Value</Text>
-        </Card>
-        <Card style={styles.statCard}>
-          <Text style={[styles.statValue, { color: '#dc2626' }]}>
-            {stats.lowStockItems}
-          </Text>
-          <Text style={styles.statLabel}>Low Stock Items</Text>
-        </Card>
-        <Card style={styles.statCard}>
-          <Text style={[styles.statValue, { color: '#9333ea' }]}>
-            {stats.pendingOrders}
-          </Text>
-          <Text style={styles.statLabel}>Pending Orders</Text>
-        </Card>
-        <Card style={styles.statCard}>
-          <Text style={[styles.statValue, { color: '#6366f1' }]}>
-            {stats.totalSales}
-          </Text>
-          <Text style={styles.statLabel}>Total Sales</Text>
-        </Card>
-        <Card style={styles.statCard}>
-          <Text style={[styles.statValue, { color: '#14b8a6' }]}>
-            ₹{stats.totalRevenue.toFixed(2)}
-          </Text>
-          <Text style={styles.statLabel}>Total Revenue</Text>
-        </Card>
-      </View>
-
-      {/* Sales Breakdown */}
-      <Card style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>Sales Breakdown</Text>
-        <View style={styles.breakdownGrid}>
-          <View style={styles.breakdownItem}>
-            <Text style={styles.breakdownLabel}>Wholesale</Text>
-            <Text style={styles.breakdownValue}>{stats.wholesaleSales} sales</Text>
-            <Text style={styles.breakdownRevenue}>₹{stats.wholesaleRevenue.toFixed(2)}</Text>
-          </View>
-          <View style={styles.breakdownItem}>
-            <Text style={styles.breakdownLabel}>Retail</Text>
-            <Text style={styles.breakdownValue}>{stats.retailSales} sales</Text>
-            <Text style={styles.breakdownRevenue}>₹{stats.retailRevenue.toFixed(2)}</Text>
-          </View>
+        {/* Explore More Section */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Explore More</Text>
         </View>
-      </Card>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.moreScroll}>
+          <TouchableOpacity
+            style={styles.moreItem}
+            onPress={() => navigation.navigate('CattleFeedOwnerCustomers')}
+          >
+            <Text style={styles.moreEmoji}>👥</Text>
+            <Text style={styles.moreText}>Customers</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.moreItem}
+            onPress={() => navigation.navigate('SupplierManagement')}
+          >
+            <Text style={styles.moreEmoji}>🚛</Text>
+            <Text style={styles.moreText}>Suppliers</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.moreItem}
+            onPress={() => navigation.navigate('CattleFeedOwnerSellers')}
+          >
+            <Text style={styles.moreEmoji}>🏪</Text>
+            <Text style={styles.moreText}>Sellers</Text>
+          </TouchableOpacity>
+        </ScrollView>
 
-      {/* Recent Sales */}
-      {recentSales.length > 0 && (
-        <Card style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Recent Sales</Text>
-          {recentSales.map((sale: any) => (
-            <View key={sale._id || sale.id} style={styles.saleItem}>
-              <View style={styles.saleInfo}>
-                <Text style={styles.saleDate}>
-                  {new Date(sale.date || sale.createdAt).toLocaleDateString()}
-                </Text>
-                <Text style={styles.saleAmount}>₹{sale.totalAmount || 0}</Text>
+        {/* Recent Activity */}
+        {recentSales.length > 0 && (
+          <Card style={styles.activityCard}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>Recent Sales</Text>
+              <TouchableOpacity onPress={() => navigation.navigate('CattleFeedOwnerSales')}>
+                <Text style={styles.viewAllText}>View All</Text>
+              </TouchableOpacity>
+            </View>
+            {recentSales.map((sale, index) => (
+              <View key={sale._id || sale.id || index} style={[styles.listRow, index === recentSales.length - 1 && { borderBottomWidth: 0 }]}>
+                <View style={styles.listIconContainer}>
+                  <Text style={styles.listIcon}>🧾</Text>
+                </View>
+                <View style={styles.listContent}>
+                  <Text style={styles.listMainText}>₹{sale.totalAmount?.toLocaleString('en-IN') || 0}</Text>
+                  <Text style={styles.listSubText}>
+                    {new Date(sale.date || sale.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} • {sale.saleType || 'Retail'}
+                  </Text>
+                </View>
+                <Text style={styles.statusBadge}>Success</Text>
               </View>
-              <Text style={styles.saleType}>{sale.saleType || 'N/A'}</Text>
-            </View>
-          ))}
-        </Card>
-      )}
+            ))}
+          </Card>
+        )}
 
-      {/* Low Stock Items */}
-      {lowStockItems.length > 0 && (
-        <Card style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Low Stock Items</Text>
-          {lowStockItems.map((item: any) => (
-            <View key={item._id || item.id} style={styles.stockItem}>
-              <Text style={styles.stockItemName}>{item.productName || item.name}</Text>
-              <Text style={styles.stockItemQuantity}>
-                {item.quantity} {item.unit || 'units'}
-              </Text>
+        {/* Low Stock Alerts */}
+        {lowStockItems.length > 0 && (
+          <Card style={styles.activityCard}>
+            <View style={styles.cardHeader}>
+              <Text style={[styles.cardTitle, { color: colors.error[600] }]}>Low Stock Alerts</Text>
+              <TouchableOpacity onPress={() => navigation.navigate('CattleFeedOwnerInventory')}>
+                <Text style={styles.viewAllText}>Manage</Text>
+              </TouchableOpacity>
             </View>
-          ))}
-        </Card>
-      )}
-    </ScrollView>
+            {lowStockItems.map((item, index) => (
+              <View key={item._id || item.id || index} style={[styles.listRow, index === lowStockItems.length - 1 && { borderBottomWidth: 0 }]}>
+                <View style={[styles.listIconContainer, { backgroundColor: colors.error[50] }]}>
+                  <Text style={styles.listIcon}>📦</Text>
+                </View>
+                <View style={styles.listContent}>
+                  <Text style={styles.listMainText}>{item.productName || item.name}</Text>
+                  <Text style={[styles.listSubText, { color: colors.error[500] }]}>
+                    Only {item.quantity} {item.unit || 'units'} left
+                  </Text>
+                </View>
+                <TouchableOpacity style={styles.reorderBtn}>
+                  <Text style={styles.reorderText}>Add</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </Card>
+        )}
+
+        <View style={styles.footerSpacer} />
+      </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#f8fafc',
+  },
+  scrollContent: {
+    paddingBottom: spacing.xxl,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#f8fafc',
   },
   loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#6b7280',
+    marginTop: spacing.md,
+    fontSize: typography.fontSize.base,
+    color: colors.text.secondary,
+    fontWeight: typography.fontWeight.medium,
   },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#f3f4f6',
+  headerAction: {
+    padding: spacing.sm,
   },
-  errorText: {
-    fontSize: 16,
-    color: '#dc2626',
-    marginBottom: 16,
-    textAlign: 'center',
+  headerActionIcon: {
+    fontSize: 18,
   },
-  retryButton: {
-    marginTop: 8,
+  welcomeSection: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.sm,
   },
-  headerContainer: {
-    zIndex: 10,
-    backgroundColor: '#ffffff',
-    paddingBottom: 8,
-    paddingTop: 40,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+  welcomeText: {
+    fontSize: typography.fontSize.base,
+    color: colors.text.tertiary,
+    fontWeight: typography.fontWeight.medium,
   },
-  header: {
+  userName: {
+    fontSize: typography.fontSize['2xl'],
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+    marginTop: 2,
+  },
+  summaryContainer: {
+    padding: spacing.lg,
+  },
+  mainRevenueCard: {
+    borderRadius: borderRadius.xl,
+    padding: spacing.xl,
+    ...shadows.lg,
+  },
+  revenueHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
   },
-  headerRight: {
-    flexDirection: 'row',
+  revenueTitle: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  revenueIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
   },
-  title: {
-    fontSize: 24,
+  revenueIcon: {
+    color: 'white',
     fontWeight: 'bold',
-    color: '#111827',
   },
-  loadingIndicator: {
+  revenueValue: {
+    color: 'white',
+    fontSize: 36,
+    fontWeight: typography.fontWeight.black,
+    marginVertical: spacing.md,
+  },
+  revenueStats: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    marginTop: spacing.sm,
+    backgroundColor: 'rgba(0,0,0,0.1)',
+    padding: spacing.md,
+    borderRadius: borderRadius.lg,
   },
-  loadingLabel: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginLeft: 8,
+  revenueStatItem: {
+    flex: 1,
   },
-  refreshButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+  revenueStatLabel: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 10,
+    fontWeight: typography.fontWeight.bold,
+    textTransform: 'uppercase',
   },
-  statsContainer: {
+  revenueStatValue: {
+    color: 'white',
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.bold,
+    marginTop: 2,
+  },
+  revenueStatDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    marginHorizontal: spacing.md,
+  },
+  statsGrid: {
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  statRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    padding: 16,
-    gap: 12,
+    gap: spacing.md,
+    marginBottom: spacing.md,
   },
   statCard: {
     flex: 1,
-    minWidth: '45%',
-    alignItems: 'center',
-    padding: 16,
+    padding: spacing.md,
+    marginVertical: 0,
+    alignItems: 'flex-start',
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
   },
-  statValue: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    marginBottom: 8,
+  alertCard: {
+    borderColor: colors.error[100],
+    backgroundColor: colors.error[50],
   },
-  statLabel: {
-    fontSize: 12,
-    color: '#6b7280',
-    textAlign: 'center',
-  },
-  sectionCard: {
-    margin: 16,
-    marginTop: 0,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#111827',
-    marginBottom: 16,
-  },
-  breakdownGrid: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  breakdownItem: {
-    flex: 1,
-    padding: 12,
-    backgroundColor: '#f9fafb',
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  breakdownLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 4,
-  },
-  breakdownValue: {
-    fontSize: 16,
-    color: '#6b7280',
-    marginBottom: 4,
-  },
-  breakdownRevenue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#16a34a',
-  },
-  saleItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-  },
-  saleInfo: {
-    flex: 1,
-  },
-  saleDate: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 4,
-  },
-  saleAmount: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#111827',
-  },
-  saleType: {
-    fontSize: 12,
-    color: '#9ca3af',
-    textTransform: 'capitalize',
-  },
-  stockItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-  },
-  stockItemName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
-  },
-  stockItemQuantity: {
-    fontSize: 14,
-    color: '#dc2626',
-    fontWeight: '600',
-  },
-  profileButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#f3f4f6',
+  statIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: borderRadius.md,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 8,
+    marginBottom: spacing.sm,
   },
-  profileIcon: {
-    fontSize: 22,
+  statEmoji: {
+    fontSize: 20,
   },
-  menuDropdown: {
-    position: 'absolute',
-    top: 70,
-    right: 16,
+  statNum: {
+    fontSize: typography.fontSize.xl,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+  },
+  statDesc: {
+    fontSize: typography.fontSize.xs,
+    color: colors.text.tertiary,
+    marginTop: 2,
+    fontWeight: typography.fontWeight.medium,
+  },
+  sectionHeader: {
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  sectionTitle: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+  },
+  actionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  actionItem: {
+    width: '25%',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    marginBottom: spacing.md,
+  },
+  actionIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+    ...shadows.md,
+  },
+  actionEmoji: {
+    fontSize: 24,
+  },
+  actionText: {
+    fontSize: 13,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+    textAlign: 'center',
+  },
+  actionSubText: {
+    fontSize: 10,
+    color: colors.text.tertiary,
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  moreScroll: {
+    paddingHorizontal: spacing.lg,
+    gap: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  moreItem: {
     backgroundColor: 'white',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.xl,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    ...shadows.sm,
+  },
+  moreEmoji: {
+    fontSize: 18,
+  },
+  moreText: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.text.secondary,
+  },
+  activityCard: {
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.lg,
+    padding: spacing.lg,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+  },
+  cardTitle: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+  },
+  viewAllText: {
+    fontSize: typography.fontSize.xs,
+    color: colors.primary[600],
+    fontWeight: typography.fontWeight.bold,
+  },
+  listRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  listIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: colors.primary[50],
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  listIcon: {
+    fontSize: 18,
+  },
+  listContent: {
+    flex: 1,
+    marginLeft: spacing.md,
+  },
+  listMainText: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+  },
+  listSubText: {
+    fontSize: typography.fontSize.xs,
+    color: colors.text.tertiary,
+    marginTop: 2,
+  },
+  statusBadge: {
+    fontSize: 10,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.success[600],
+    backgroundColor: colors.success[50],
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: 8,
-    paddingVertical: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    minWidth: 150,
+    overflow: 'hidden',
   },
-  menuItem: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+  reorderBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: colors.primary[600],
+    borderRadius: 8,
   },
-  menuText: {
-    fontSize: 16,
-    color: '#374151',
+  reorderText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
-  logoutText: {
-    color: '#dc2626',
-    fontWeight: '600',
-  },
-  menuDivider: {
-    height: 1,
-    backgroundColor: '#e5e7eb',
-    marginVertical: 4,
+  footerSpacer: {
+    height: spacing.xl,
   },
 });
 

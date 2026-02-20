@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, Alert, Animated, Platform, StatusBar, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { useRoute } from '@react-navigation/native';
 import { getMilkTruckBMCs, addMilkTruckBMC, updateMilkTruckBMC, deleteMilkTruckBMC, getMilkTruckBMCHistory } from '../../../utils/storage';
 import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
@@ -9,10 +10,16 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { useOwner } from '../../../contexts/OwnerContext';
 import OwnerSelector from '../../../components/SuperAdmin/OwnerSelector';
 import { useToast } from '../../../contexts/ToastContext';
+import { colors } from '../../../theme/colors';
+import { spacing, borderRadius, shadows } from '../../../theme/spacing';
+import { typography } from '../../../theme/typography';
+import ScreenHeader from '../../../components/common/ScreenHeader';
+import LinearGradient from 'react-native-linear-gradient';
 
 const BMCManagement: React.FC = () => {
   const { isSuperAdmin } = useAuth();
   const { selectedOwnerId } = useOwner();
+  const route = useRoute<any>();
   const { success, error: showError } = useToast();
   const [bmcs, setBMCs] = useState<any[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -24,17 +31,35 @@ const BMCManagement: React.FC = () => {
   });
   const [loading, setLoading] = useState(true);
 
-  // History State
-  const [historyModal, setHistoryModal] = useState<{
-    visible: boolean;
+  // Animations
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
+
+  // View Control
+  const [viewMode, setViewMode] = useState<'list' | 'analytics'>('list');
+  const [analyticsData, setAnalyticsData] = useState<{
     bmc: any;
     data: any;
     loading: boolean;
-  }>({ visible: false, bmc: null, data: null, loading: false });
+  }>({ bmc: null, data: null, loading: false });
 
   useEffect(() => {
     loadBMCs();
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, tension: 50, friction: 8, useNativeDriver: true }),
+    ]).start();
   }, [selectedOwnerId]);
+
+  // Handle direct navigation to analytics
+  useEffect(() => {
+    if (route.params?.bmcId && bmcs.length > 0) {
+      const bmc = bmcs.find(b => (b._id || b.id) === route.params.bmcId);
+      if (bmc) {
+        viewHistory(bmc);
+      }
+    }
+  }, [route.params?.bmcId, bmcs]);
 
   const loadBMCs = async () => {
     try {
@@ -114,359 +139,653 @@ const BMCManagement: React.FC = () => {
   };
 
   const viewHistory = async (bmc: any) => {
-    setHistoryModal({ visible: true, bmc, data: null, loading: true });
+    setViewMode('analytics');
+    setAnalyticsData({ bmc, data: null, loading: true });
     try {
       const historyData = await getMilkTruckBMCHistory(bmc._id || bmc.id);
-      setHistoryModal({ visible: true, bmc, data: historyData, loading: false });
+      setAnalyticsData({ bmc, data: historyData, loading: false });
     } catch (error: any) {
       console.error('Error fetching history:', error);
       showError('Failed to load history');
-      setHistoryModal({ visible: false, bmc: null, data: null, loading: false });
+      setViewMode('list');
     }
   };
 
   const closeHistory = () => {
-    setHistoryModal({ visible: false, bmc: null, data: null, loading: false });
+    setViewMode('list');
+    setAnalyticsData({ bmc: null, data: null, loading: false });
+  };
+
+  const renderContent = () => {
+    if (viewMode === 'list') {
+      return (
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+          {loading ? (
+            <View style={styles.loadingWrapper}>
+              <ActivityIndicator color={colors.primary[500]} size="large" />
+              <Text style={styles.loadingText}>Syncing BMC data...</Text>
+            </View>
+          ) : !Array.isArray(bmcs) || bmcs.length === 0 ? (
+            <Card style={styles.emptyCard}>
+              <Text style={styles.emptyEmoji}>🏢</Text>
+              <Text style={styles.emptyText}>No BMCs registered yet</Text>
+              <Button
+                variant="primary"
+                onPress={() => setShowForm(true)}
+                style={styles.emptyButton}
+              >
+                Register First BMC
+              </Button>
+            </Card>
+          ) : (
+            <View style={styles.list}>
+              {bmcs.map((bmc) => (
+                <View key={bmc._id || bmc.id} style={styles.listItem}>
+                  <View style={styles.listItemHeader}>
+                    <View style={styles.bmcIconContainer}>
+                      <Text style={styles.bmcIcon}>🏢</Text>
+                    </View>
+                    <View style={styles.bmcMainInfo}>
+                      <Text style={styles.listItemName}>{bmc.name}</Text>
+                      <View style={styles.locationContainer}>
+                        <Text style={styles.locationIcon}>📍</Text>
+                        <Text style={styles.listItemDetail}>{bmc.location}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.contactBadge}>
+                      <Text style={styles.contactPhone}>📞 {bmc.contact}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.divider} />
+
+                  <View style={styles.listItemActions}>
+                    <TouchableOpacity
+                      onPress={() => viewHistory(bmc)}
+                      style={[styles.premiumActionBtn, styles.analysisBtn]}
+                    >
+                      <Text style={styles.analysisBtnText}>📊 Performance</Text>
+                    </TouchableOpacity>
+
+                    <View style={styles.actionGroupRight}>
+                      <TouchableOpacity
+                        onPress={() => handleEdit(bmc)}
+                        style={styles.iconActionBtn}
+                      >
+                        <Text style={styles.iconEmoji}>✏️</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => handleDelete(bmc._id || bmc.id)}
+                        style={[styles.iconActionBtn, styles.dangerIconBtn]}
+                      >
+                        <Text style={styles.iconEmoji}>🗑️</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+        </Animated.View>
+      );
+    }
+
+    // Analytics View
+    return (
+      <View style={styles.analyticsPage}>
+        <View style={styles.analyticsHeader}>
+          <TouchableOpacity onPress={closeHistory} style={styles.backBtn}>
+            <Text style={styles.backBtnText}>← Back to Network</Text>
+          </TouchableOpacity>
+          <Text style={styles.analyticsTitle}>Performance Analytics</Text>
+          <Text style={styles.analyticsBmcName}>{analyticsData.bmc?.name}</Text>
+        </View>
+
+        {analyticsData.loading ? (
+          <View style={styles.loadingWrapper}>
+            <ActivityIndicator color={colors.primary[500]} size="large" />
+            <Text style={styles.loadingText}>Analyzing performance metrics...</Text>
+          </View>
+        ) : (
+          <View>
+            <View style={styles.heroAnalytics}>
+              <View style={styles.mainVarianceCard}>
+                <Text style={styles.mvLabel}>Total Milk Variance</Text>
+                <Text style={[styles.mvValue, (analyticsData.data?.totalVariance?.milk || 0) >= 0 ? styles.textSuccess : styles.textDanger]}>
+                  {(analyticsData.data?.totalVariance?.milk || 0).toFixed(1)} <Text style={styles.mvUnit}>Ltrs</Text>
+                </Text>
+                <View style={styles.mvDivider} />
+                <View style={styles.mvGrid}>
+                  <View style={styles.mvGridItem}>
+                    <Text style={styles.mvgLabel}>Fat (kg)</Text>
+                    <Text style={[styles.mvgValue, (analyticsData.data?.totalVariance?.fatKg || 0) >= 0 ? styles.textSuccess : styles.textDanger]}>
+                      {(analyticsData.data?.totalVariance?.fatKg || 0).toFixed(2)}
+                    </Text>
+                  </View>
+                  <View style={styles.mvgItemDivider} />
+                  <View style={styles.mvGridItem}>
+                    <Text style={styles.mvgLabel}>SNF (kg)</Text>
+                    <Text style={[styles.mvgValue, (analyticsData.data?.totalVariance?.snfKg || 0) >= 0 ? styles.textSuccess : styles.textDanger]}>
+                      {(analyticsData.data?.totalVariance?.snfKg || 0).toFixed(2)}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.sectionHeaderAnalytics}>
+              <Text style={styles.secTitleA}>Collection Logs</Text>
+              <View style={styles.logCountBadge}>
+                <Text style={styles.lcbText}>{analyticsData.data?.history?.length || 0} Entries</Text>
+              </View>
+            </View>
+
+            {analyticsData.data?.history?.length > 0 ? (
+              analyticsData.data.history.map((item: any, idx: number) => (
+                <Card key={idx} style={styles.logCard}>
+                  <View style={styles.logHeader}>
+                    <View>
+                      <Text style={styles.logDate}>
+                        {item.date ? new Date(item.date).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A'}
+                      </Text>
+                      <Text style={styles.logTime}>
+                        {item.date ? new Date(item.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                      </Text>
+                    </View>
+                    <View style={styles.vehicleBadge}>
+                      <Text style={styles.vbText}>{item.vehicleReg || 'N/A'}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.logGrid}>
+                    <View style={styles.logMetric}>
+                      <Text style={styles.lmLabel}>Quantity</Text>
+                      <Text style={styles.lmValue}>{(item.collection?.milk || 0).toFixed(1)}L</Text>
+                      <Text style={[styles.lmVar, (item.variance?.milk || 0) >= 0 ? styles.textSuccess : styles.textDanger]}>
+                        {(item.variance?.milk || 0) > 0 ? '+' : ''}{(item.variance?.milk || 0).toFixed(1)}
+                      </Text>
+                    </View>
+                    <View style={styles.logMetric}>
+                      <Text style={styles.lmLabel}>Fat Var</Text>
+                      <Text style={[styles.lmVarLarge, (item.variance?.fatKg || 0) >= 0 ? styles.textSuccess : styles.textDanger]}>
+                        {(item.variance?.fatKg || 0) > 0 ? '+' : ''}{(item.variance?.fatKg || 0).toFixed(2)}kg
+                      </Text>
+                    </View>
+                    <View style={styles.logMetric}>
+                      <Text style={styles.lmLabel}>SNF Var</Text>
+                      <Text style={[styles.lmVarLarge, (item.variance?.snfKg || 0) >= 0 ? styles.textSuccess : styles.textDanger]}>
+                        {(item.variance?.snfKg || 0) > 0 ? '+' : ''}{(item.variance?.snfKg || 0).toFixed(2)}kg
+                      </Text>
+                    </View>
+                  </View>
+                </Card>
+              ))
+            ) : (
+              <View style={styles.emptyA}>
+                <Text style={styles.emptyAText}>No historical collection data found.</Text>
+              </View>
+            )}
+          </View>
+        )}
+      </View>
+    );
   };
 
   return (
-    <ScrollView style={styles.container}>
-      {isSuperAdmin && <OwnerSelector systemType="milkTruck" />}
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+      <LinearGradient
+        colors={[colors.primary[600], colors.primary[400], colors.background.primary]}
+        style={styles.backgroundGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 0.8 }}
+      />
 
-      <View style={styles.header}>
-        <Text style={styles.title}>BMC Management</Text>
-        <Button
-          variant="primary"
-          onPress={() => {
-            resetForm();
-            setShowForm(true);
-          }}
-        >
-          Add New BMC
-        </Button>
-      </View>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {isSuperAdmin && <OwnerSelector systemType="milkTruck" />}
+
+        <View style={styles.headerSpacer} />
+        <ScreenHeader
+          title="BMC Network"
+          subtitle="Manage Centers & Collections"
+          transparent
+          rightAction={
+            <TouchableOpacity
+              onPress={() => {
+                resetForm();
+                setShowForm(true);
+              }}
+              style={styles.addButtonCircle}
+            >
+              <Text style={styles.addButtonIcon}>+</Text>
+            </TouchableOpacity>
+          }
+        />
+
+        {renderContent()}
+      </ScrollView>
 
       <Modal
         visible={showForm}
         onClose={resetForm}
-        title={editingBMC ? 'Edit BMC' : 'Add New BMC'}
+        title={editingBMC ? 'Update BMC' : 'Register BMC'}
       >
-        <View style={styles.form}>
+        <View style={styles.formContainer}>
+          <Text style={styles.formSubtitle}>Ensure all details are accurate for collections.</Text>
           <Input
             label="BMC Name"
             value={formData.name}
             onChangeText={(value) => handleInputChange('name', value)}
-            required
-            placeholder="Enter BMC name"
+            placeholder="e.g. Anand Dairy BMC"
           />
           <Input
-            label="Location"
+            label="Center Location"
             value={formData.location}
             onChangeText={(value) => handleInputChange('location', value)}
-            required
-            placeholder="Enter location"
+            placeholder="e.g. Sector 5, Anand"
           />
           <Input
-            label="Contact"
+            label="In-charge Contact"
             value={formData.contact}
             onChangeText={(value) => handleInputChange('contact', value)}
-            required
-            placeholder="Enter contact number"
+            placeholder="Phone number"
             keyboardType="phone-pad"
           />
-          <View style={styles.formButtons}>
-            <Button type="submit" variant="primary" onPress={handleSubmit}>
-              {editingBMC ? 'Update' : 'Add'} BMC
+          <View style={styles.modalFooter}>
+            <Button
+              variant="primary"
+              onPress={handleSubmit}
+              style={styles.modalSubmitBtn}
+            >
+              {editingBMC ? 'Save Changes' : 'Register BMC'}
             </Button>
-            <Button variant="secondary" onPress={resetForm}>
-              Cancel
-            </Button>
+            <TouchableOpacity onPress={resetForm} style={styles.cancelLink}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
-
-      {/* History Modal */}
-      <Modal
-        visible={historyModal.visible}
-        onClose={closeHistory}
-        title={historyModal.bmc ? `History: ${historyModal.bmc.name}` : 'BMC History'}
-      >
-        <ScrollView style={{ maxHeight: 500 }}>
-          {historyModal.loading ? (
-            <Text style={styles.loadingText}>Loading history...</Text>
-          ) : historyModal.data && historyModal.data.history?.length > 0 ? (
-            <View>
-              {/* Summary */}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 }}>
-                <View style={[styles.summaryCard, { backgroundColor: '#eff6ff', marginRight: 4 }]}>
-                  <Text style={styles.summaryLabel}>Var Milk</Text>
-                  <Text style={[styles.summaryValue, (historyModal.data.totalVariance?.milk || 0) >= 0 ? styles.textGreen : styles.textRed]}>
-                    {(historyModal.data.totalVariance?.milk || 0) > 0 ? '+' : ''}{(historyModal.data.totalVariance?.milk || 0).toFixed(1)} L
-                  </Text>
-                </View>
-                <View style={[styles.summaryCard, { backgroundColor: '#f5f3ff', marginHorizontal: 4 }]}>
-                  <Text style={styles.summaryLabel}>Var Fat</Text>
-                  <Text style={[styles.summaryValue, (historyModal.data.totalVariance?.fatKg || 0) >= 0 ? styles.textGreen : styles.textRed]}>
-                    {(historyModal.data.totalVariance?.fatKg || 0) > 0 ? '+' : ''}{(historyModal.data.totalVariance?.fatKg || 0).toFixed(2)} Kg
-                  </Text>
-                </View>
-                <View style={[styles.summaryCard, { backgroundColor: '#eef2ff', marginLeft: 4 }]}>
-                  <Text style={styles.summaryLabel}>Var SNF</Text>
-                  <Text style={[styles.summaryValue, (historyModal.data.totalVariance?.snfKg || 0) >= 0 ? styles.textGreen : styles.textRed]}>
-                    {(historyModal.data.totalVariance?.snfKg || 0) > 0 ? '+' : ''}{(historyModal.data.totalVariance?.snfKg || 0).toFixed(2)} Kg
-                  </Text>
-                </View>
-              </View>
-
-              {/* History List */}
-              {historyModal.data.history.map((item: any, idx: number) => (
-                <View key={idx} style={[styles.historyItem, idx % 2 === 1 && { backgroundColor: '#f9fafb' }]}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <View>
-                      <Text style={styles.historyDate}>{new Date(item.date).toLocaleDateString()}</Text>
-                      <Text style={styles.historyTime}>{new Date(item.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
-                    </View>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      <Text style={styles.regNum}>{item.vehicleReg}</Text>
-                    </View>
-                  </View>
-
-                  <View style={{ flexDirection: 'row', marginBottom: 4, borderBottomWidth: 1, borderBottomColor: '#eee', paddingBottom: 4 }}>
-                    <Text style={[styles.colHeader, { flex: 1 }]}>Type</Text>
-                    <Text style={[styles.colHeader, { flex: 1, textAlign: 'right' }]}>Coll</Text>
-                    <Text style={[styles.colHeader, { flex: 1, textAlign: 'right' }]}>Ver</Text>
-                    <Text style={[styles.colHeader, { flex: 1, textAlign: 'right' }]}>Var</Text>
-                  </View>
-
-                  <View style={styles.row}>
-                    <Text style={styles.cellLabel}>Milk L</Text>
-                    <Text style={styles.cellValue}>{(item.collection?.milk || 0).toFixed(1)}</Text>
-                    <Text style={styles.cellValue}>{(item.verified?.milk || 0).toFixed(1)}</Text>
-                    <Text style={[styles.cellValue, { textAlign: 'right' }, (item.variance?.milk || 0) >= 0 ? styles.textGreen : styles.textRed]}>
-                      {(item.variance?.milk || 0) > 0 ? '+' : ''}{(item.variance?.milk || 0).toFixed(1)}
-                    </Text>
-                  </View>
-
-                  <View style={styles.row}>
-                    <Text style={styles.cellLabel}>Fat Kg</Text>
-                    <Text style={styles.cellValue}>{(item.collection?.fatKg || 0).toFixed(2)}</Text>
-                    <Text style={styles.cellValue}>{(item.verified?.fatKg || 0).toFixed(2)}</Text>
-                    <Text style={[styles.cellValue, { textAlign: 'right' }, (item.variance?.fatKg || 0) >= 0 ? styles.textGreen : styles.textRed]}>
-                      {(item.variance?.fatKg || 0) > 0 ? '+' : ''}{(item.variance?.fatKg || 0).toFixed(2)}
-                    </Text>
-                  </View>
-
-                  <View style={styles.row}>
-                    <Text style={styles.cellLabel}>SNF Kg</Text>
-                    <Text style={styles.cellValue}>{(item.collection?.snfKg || 0).toFixed(2)}</Text>
-                    <Text style={styles.cellValue}>{(item.verified?.snfKg || 0).toFixed(2)}</Text>
-                    <Text style={[styles.cellValue, { textAlign: 'right' }, (item.variance?.snfKg || 0) >= 0 ? styles.textGreen : styles.textRed]}>
-                      {(item.variance?.snfKg || 0) > 0 ? '+' : ''}{(item.variance?.snfKg || 0).toFixed(2)}
-                    </Text>
-                  </View>
-
-                </View>
-              ))}
-            </View>
-          ) : (
-            <Text style={styles.emptyText}>No history found.</Text>
-          )}
-        </ScrollView>
-        <Button variant="secondary" onPress={closeHistory} style={{ marginTop: 16 }}>Close</Button>
-      </Modal>
-
-      <Card title="BMC List">
-        {loading ? (
-          <Text style={styles.loadingText}>Loading...</Text>
-        ) : !Array.isArray(bmcs) || bmcs.length === 0 ? (
-          <Text style={styles.emptyText}>No BMCs found. Add your first BMC to get started.</Text>
-        ) : (
-          <View style={styles.list}>
-            {bmcs.map((bmc) => (
-              <View key={bmc._id || bmc.id} style={styles.listItem}>
-                <View style={styles.listItemContent}>
-                  <Text style={styles.listItemName}>{bmc.name}</Text>
-                  <Text style={styles.listItemDetail}>📍 {bmc.location}</Text>
-                  <Text style={styles.listItemDetail}>📞 {bmc.contact}</Text>
-                </View>
-                <View style={styles.listItemActions}>
-                  <Button
-                    variant="secondary"
-                    onPress={() => viewHistory(bmc)}
-                    style={[styles.actionButton, styles.historyButton]}
-                  >
-                    Analysis
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onPress={() => handleEdit(bmc)}
-                    style={styles.actionButton}
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    variant="danger"
-                    onPress={() => handleDelete(bmc._id || bmc.id)}
-                    style={styles.actionButton}
-                  >
-                    Delete
-                  </Button>
-                </View>
-              </View>
-            ))}
-          </View>
-        )}
-      </Card>
-    </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: colors.background.primary,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  backgroundGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: 350,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    padding: spacing.lg,
+  },
+  headerSpacer: {
+    height: Platform.OS === 'ios' ? 40 : 20,
+  },
+  addButtonCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
   },
-  title: {
+  addButtonIcon: {
     fontSize: 24,
+    color: '#fff',
     fontWeight: 'bold',
-    color: '#1f2937',
   },
-  form: {
-    gap: 16,
-  },
-  formButtons: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
+  loadingWrapper: {
+    padding: spacing.xxl,
+    alignItems: 'center',
   },
   loadingText: {
-    textAlign: 'center',
-    padding: 20,
-    color: '#6b7280',
-  },
-  emptyText: {
-    textAlign: 'center',
-    padding: 20,
-    color: '#6b7280',
+    marginTop: spacing.sm,
+    color: colors.primary[600],
+    fontWeight: '500',
   },
   list: {
-    gap: 12,
+    gap: spacing.md,
+    marginTop: spacing.md,
   },
   listItem: {
-    backgroundColor: '#ffffff',
-    padding: 16,
-    borderRadius: 8,
+    backgroundColor: '#fff',
+    borderRadius: borderRadius.xl,
+    padding: spacing.lg,
+    ...shadows.md,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    marginBottom: 8,
+    borderColor: colors.primary[50],
   },
-  listItemContent: {
-    marginBottom: 12,
+  listItemHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  bmcIconContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: borderRadius.lg,
+    backgroundColor: colors.primary[50],
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  bmcIcon: {
+    fontSize: 24,
+  },
+  bmcMainInfo: {
+    flex: 1,
+    marginLeft: spacing.md,
   },
   listItemName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1f2937',
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[900],
     marginBottom: 4,
   },
+  locationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  locationIcon: {
+    fontSize: 12,
+    marginRight: 4,
+  },
   listItemDetail: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 2,
+    fontSize: typography.fontSize.sm,
+    color: colors.text.secondary,
+  },
+  contactBadge: {
+    backgroundColor: colors.success[50],
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: borderRadius.full,
+  },
+  contactPhone: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: colors.success[700],
+  },
+  divider: {
+    height: 1,
+    backgroundColor: colors.primary[50],
+    marginVertical: spacing.md,
   },
   listItemActions: {
     flexDirection: 'row',
-    gap: 8,
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  actionButton: {
-    flex: 1,
+  premiumActionBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
   },
-  historyButton: {
-    backgroundColor: '#eef2ff',
-    borderColor: '#c7d2fe',
+  analysisBtn: {
+    backgroundColor: '#fff',
+    borderColor: colors.primary[200],
   },
-  // History Styles
-  summaryCard: {
-    flex: 1,
-    padding: 8,
-    borderRadius: 8,
+  analysisBtnText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: colors.primary[600],
+  },
+  actionGroupRight: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  iconActionBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.background.secondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dangerIconBtn: {
+    backgroundColor: colors.error[50],
+  },
+  iconEmoji: {
+    fontSize: 16,
+  },
+  formContainer: {
+    padding: spacing.md,
+  },
+  formSubtitle: {
+    fontSize: 14,
+    color: colors.text.tertiary,
+    marginBottom: spacing.lg,
+  },
+  modalFooter: {
+    marginTop: spacing.xl,
+    gap: spacing.md,
+    alignItems: 'center',
+  },
+  modalSubmitBtn: {
+    width: '100%',
+  },
+  cancelLink: {
+    padding: spacing.sm,
+  },
+  cancelText: {
+    color: colors.text.tertiary,
+    fontWeight: '600',
+  },
+  emptyCard: {
+    padding: spacing.xxl,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: borderRadius.xl,
+  },
+  emptyEmoji: {
+    fontSize: 60,
+    marginBottom: spacing.md,
+    opacity: 0.5,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.text.tertiary,
+    marginBottom: spacing.xl,
+  },
+  emptyButton: {
+    width: '100%',
+  },
+  analyticsPage: {
+    paddingBottom: 40,
+  },
+  analyticsHeader: {
+    marginBottom: spacing.xl,
+  },
+  backBtn: {
+    marginBottom: spacing.md,
+  },
+  backBtnText: {
+    color: 'rgba(255,255,255,0.8)',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  analyticsTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  analyticsBmcName: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.8)',
+    fontWeight: '500',
+    marginTop: 4,
+  },
+  heroAnalytics: {
+    marginBottom: spacing.xl,
+  },
+  mainVarianceCard: {
+    backgroundColor: '#fff',
+    borderRadius: borderRadius['2xl'],
+    padding: spacing.xl,
+    ...shadows.lg,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.05)'
+    borderColor: colors.primary[50],
   },
-  summaryLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#4b5563',
+  mvLabel: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: colors.text.tertiary,
     textTransform: 'uppercase',
-    marginBottom: 4
+    letterSpacing: 0.5,
+    marginBottom: 8,
   },
-  summaryValue: {
+  mvValue: {
+    fontSize: 48,
+    fontWeight: 'bold',
+    marginBottom: 16,
+  },
+  mvUnit: {
+    fontSize: 18,
+    opacity: 0.6,
+  },
+  mvDivider: {
+    height: 1,
+    width: '100%',
+    backgroundColor: colors.border.light,
+    marginVertical: spacing.lg,
+  },
+  mvGrid: {
+    flexDirection: 'row',
+    width: '100%',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+  },
+  mvGridItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  mvgLabel: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: colors.text.tertiary,
+    marginBottom: 4,
+  },
+  mvgValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  mvgItemDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: colors.border.light,
+  },
+  sectionHeaderAnalytics: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+    marginTop: spacing.md,
+  },
+  secTitleA: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.primary[900],
+  },
+  logCountBadge: {
+    backgroundColor: colors.primary[50],
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: borderRadius.full,
+  },
+  lcbText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: colors.primary[700],
+  },
+  logCard: {
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+    borderRadius: borderRadius.xl,
+  },
+  logHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: spacing.md,
+  },
+  logDate: {
     fontSize: 14,
     fontWeight: 'bold',
-    color: '#1f2937'
+    color: colors.text.primary,
   },
-  historyItem: {
-    padding: 12,
-    borderRadius: 8,
-    backgroundColor: '#fff',
+  logTime: {
+    fontSize: 12,
+    color: colors.text.tertiary,
+    marginTop: 2,
+  },
+  vehicleBadge: {
+    backgroundColor: colors.background.secondary,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    marginBottom: 8
+    borderColor: colors.border.light,
   },
-  historyDate: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111827'
+  vbText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: colors.primary[700],
   },
-  historyTime: {
-    fontSize: 12,
-    color: '#6b7280'
-  },
-  regNum: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#4b5563',
-    backgroundColor: '#f3f4f6',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4
-  },
-  colHeader: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#9ca3af',
-    textTransform: 'uppercase'
-  },
-  row: {
+  logGrid: {
     flexDirection: 'row',
-    marginBottom: 2
+    gap: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.03)',
+    paddingTop: spacing.md,
   },
-  cellLabel: {
+  logMetric: {
     flex: 1,
-    fontSize: 12,
-    color: '#6b7280',
-    fontWeight: '500'
+    alignItems: 'center',
   },
-  cellValue: {
-    flex: 1,
-    textAlign: 'right',
-    fontSize: 12,
-    color: '#1f2937'
+  lmLabel: {
+    fontSize: 10,
+    color: colors.text.tertiary,
+    fontWeight: 'bold',
+    marginBottom: 4,
   },
-  textGreen: {
-    color: '#059669'
+  lmValue: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: colors.text.primary,
   },
-  textRed: {
-    color: '#dc2626'
-  }
+  lmVar: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    marginTop: 2,
+  },
+  lmVarLarge: {
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  emptyA: {
+    padding: spacing.xxl,
+    alignItems: 'center',
+  },
+  emptyAText: {
+    color: colors.text.tertiary,
+    fontSize: 14,
+  },
+  textSuccess: {
+    color: colors.success[600],
+  },
+  textDanger: {
+    color: colors.error[600],
+  },
 });
 
 export default BMCManagement;

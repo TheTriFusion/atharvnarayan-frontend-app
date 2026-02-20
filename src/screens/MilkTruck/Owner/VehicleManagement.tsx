@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, Alert, Animated, Platform, StatusBar, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { getMilkTruckVehicles, getMilkTruckDrivers, addMilkTruckVehicle, updateMilkTruckVehicle, deleteMilkTruckVehicle } from '../../../utils/storage';
 import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
@@ -10,6 +10,11 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { useOwner } from '../../../contexts/OwnerContext';
 import OwnerSelector from '../../../components/SuperAdmin/OwnerSelector';
 import { useToast } from '../../../contexts/ToastContext';
+import { colors } from '../../../theme/colors';
+import { spacing, borderRadius, shadows } from '../../../theme/spacing';
+import { typography } from '../../../theme/typography';
+import ScreenHeader from '../../../components/common/ScreenHeader';
+import LinearGradient from 'react-native-linear-gradient';
 
 const VehicleManagement: React.FC = () => {
   const { isSuperAdmin } = useAuth();
@@ -24,13 +29,23 @@ const VehicleManagement: React.FC = () => {
     capacity: '',
     assignedDriver: '',
   });
+  const [loading, setLoading] = useState(true);
+
+  // Animations
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
 
   useEffect(() => {
     loadData();
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, tension: 50, friction: 8, useNativeDriver: true }),
+    ]).start();
   }, [selectedOwnerId]);
 
   const loadData = async () => {
     try {
+      setLoading(true);
       const ownerId = isSuperAdmin ? selectedOwnerId : null;
       const [vehiclesData, driversData] = await Promise.all([
         getMilkTruckVehicles(ownerId),
@@ -43,6 +58,8 @@ const VehicleManagement: React.FC = () => {
       showError(error.message || 'Failed to load data');
       setVehicles([]);
       setDrivers([]);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -56,7 +73,7 @@ const VehicleManagement: React.FC = () => {
       capacity: parseFloat(formData.capacity),
       assignedDriver: formData.assignedDriver || null,
     };
-    
+
     try {
       if (editingVehicle) {
         await updateMilkTruckVehicle(editingVehicle._id || editingVehicle.id, vehicleData);
@@ -65,7 +82,7 @@ const VehicleManagement: React.FC = () => {
         await addMilkTruckVehicle(vehicleData);
         success('Vehicle added successfully');
       }
-      
+
       resetForm();
       await loadData();
     } catch (error: any) {
@@ -120,166 +137,378 @@ const VehicleManagement: React.FC = () => {
   }));
 
   return (
-    <ScrollView style={styles.container}>
-      {isSuperAdmin && <OwnerSelector systemType="milkTruck" />}
-      
-      <View style={styles.header}>
-        <Text style={styles.title}>Vehicle Management</Text>
-        <Button
-          variant="primary"
-          onPress={() => {
-            resetForm();
-            setShowForm(true);
-          }}
-        >
-          Add New Vehicle
-        </Button>
-      </View>
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+      <LinearGradient
+        colors={[colors.secondary[600], colors.secondary[400], colors.background.primary]}
+        style={styles.backgroundGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 0.8 }}
+      />
+
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {isSuperAdmin && <OwnerSelector systemType="milkTruck" />}
+
+        <View style={styles.headerSpacer} />
+        <ScreenHeader
+          title="Fleet Management"
+          subtitle="Manage Vehicles & Assignments"
+          transparent
+          rightAction={
+            <TouchableOpacity
+              onPress={() => {
+                resetForm();
+                setShowForm(true);
+              }}
+              style={styles.addButtonCircle}
+            >
+              <Text style={styles.addButtonIcon}>+</Text>
+            </TouchableOpacity>
+          }
+        />
+
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+          {loading ? (
+            <View style={styles.loadingWrapper}>
+              <ActivityIndicator color={colors.secondary[500]} size="large" />
+              <Text style={styles.loadingText}>Loading fleet data...</Text>
+            </View>
+          ) : !Array.isArray(vehicles) || vehicles.length === 0 ? (
+            <Card style={styles.emptyCard}>
+              <Text style={styles.emptyEmoji}>🚚</Text>
+              <Text style={styles.emptyText}>No vehicles in fleet</Text>
+              <Button
+                variant="primary"
+                onPress={() => setShowForm(true)}
+                style={styles.emptyButton}
+              >
+                Add First Vehicle
+              </Button>
+            </Card>
+          ) : (
+            <View style={styles.list}>
+              {vehicles.map((vehicle) => {
+                const driver = Array.isArray(drivers) ? drivers.find(d => (d._id || d.id) === vehicle.assignedDriver) : null;
+                return (
+                  <View key={vehicle._id || vehicle.id} style={styles.listItem}>
+                    <View style={styles.listItemHeader}>
+                      <View style={[styles.vehicleIconContainer, { backgroundColor: colors.secondary[50] }]}>
+                        <Text style={styles.vehicleIcon}>🚚</Text>
+                      </View>
+                      <View style={styles.vehicleMainInfo}>
+                        <Text style={styles.listItemName}>{vehicle.registrationNumber}</Text>
+                        <View style={styles.capacityContainer}>
+                          <Text style={styles.capacityLabel}>Capacity:</Text>
+                          <Text style={styles.capacityValue}>{vehicle.capacity} Liters</Text>
+                        </View>
+                      </View>
+                      <View style={[styles.statusBadge, { backgroundColor: driver ? colors.success[50] : colors.warning[50] }]}>
+                        <Text style={[styles.statusText, { color: driver ? colors.success[700] : colors.warning[700] }]}>
+                          {driver ? 'Active' : 'Unassigned'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.driverSection}>
+                      <Text style={styles.driverLabel}>ASSIGNED DRIVER</Text>
+                      <View style={styles.driverInfoRow}>
+                        <View style={styles.miniAvatar}>
+                          <Text style={styles.miniAvatarText}>
+                            {driver?.name ? driver.name.charAt(0).toUpperCase() : '?'}
+                          </Text>
+                        </View>
+                        <Text style={styles.driverName}>
+                          {driver?.name || 'No driver assigned'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.divider} />
+
+                    <View style={styles.listItemActions}>
+                      <TouchableOpacity
+                        onPress={() => handleEdit(vehicle)}
+                        style={[styles.premiumActionBtn, styles.editBtn]}
+                      >
+                        <Text style={styles.editBtnText}>✏️ Edit Vehicle</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={() => handleDelete(vehicle._id || vehicle.id)}
+                        style={styles.iconActionBtn}
+                      >
+                        <Text style={styles.iconEmoji}>🗑️</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+        </Animated.View>
+      </ScrollView>
 
       <Modal
         visible={showForm}
         onClose={resetForm}
-        title={editingVehicle ? 'Edit Vehicle' : 'Add New Vehicle'}
+        title={editingVehicle ? 'Update Vehicle' : 'Register Vehicle'}
       >
-        <View style={styles.form}>
+        <View style={styles.formContainer}>
           <Input
             label="Registration Number"
             value={formData.registrationNumber}
             onChangeText={(value) => handleInputChange('registrationNumber', value)}
-            required
-            placeholder="e.g., MH-12-ABCD"
+            placeholder="e.g. MH-12-ABCD"
           />
           <Input
             label="Capacity (Liters)"
             value={formData.capacity}
             onChangeText={(value) => handleInputChange('capacity', value)}
-            required
             keyboardType="decimal-pad"
-            placeholder="Enter capacity"
+            placeholder="e.g. 500.5"
           />
           <Select
-            label="Assigned Driver"
+            label="Assign Driver"
             value={formData.assignedDriver}
             onChange={(value) => handleInputChange('assignedDriver', value as string)}
             options={[
-              { value: '', label: 'Select a driver (optional)' },
+              { value: '', label: 'Keep Unassigned' },
               ...driverOptions,
             ]}
           />
-          <View style={styles.formButtons}>
-            <Button variant="primary" onPress={handleSubmit}>
-              {editingVehicle ? 'Update' : 'Add'} Vehicle
+          <View style={styles.modalFooter}>
+            <Button
+              variant="primary"
+              onPress={handleSubmit}
+              style={styles.modalSubmitBtn}
+            >
+              {editingVehicle ? 'Save Changes' : 'Register Vehicle'}
             </Button>
-            <Button variant="secondary" onPress={resetForm}>
-              Cancel
-            </Button>
+            <TouchableOpacity onPress={resetForm} style={styles.cancelLink}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
-
-      <Card title="Vehicle List">
-        {!Array.isArray(vehicles) || vehicles.length === 0 ? (
-          <Text style={styles.emptyText}>No vehicles found. Add your first vehicle to get started.</Text>
-        ) : (
-          <View style={styles.list}>
-            {vehicles.map((vehicle) => {
-              const driver = Array.isArray(drivers) ? drivers.find(d => (d._id || d.id) === vehicle.assignedDriver) : null;
-              return (
-                <View key={vehicle._id || vehicle.id} style={styles.listItem}>
-                  <View style={styles.listItemContent}>
-                    <Text style={styles.listItemName}>{vehicle.registrationNumber}</Text>
-                    <Text style={styles.listItemDetail}>Capacity: {vehicle.capacity}L</Text>
-                    <Text style={styles.listItemDetail}>
-                      Driver: {driver?.name || 'Unassigned'}
-                    </Text>
-                  </View>
-                  <View style={styles.listItemActions}>
-                    <Button
-                      variant="secondary"
-                      onPress={() => handleEdit(vehicle)}
-                      style={styles.actionButton}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      variant="danger"
-                      onPress={() => handleDelete(vehicle._id || vehicle.id)}
-                      style={styles.actionButton}
-                    >
-                      Delete
-                    </Button>
-                  </View>
-                </View>
-              );
-            })}
-          </View>
-        )}
-      </Card>
-    </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: colors.background.primary,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  backgroundGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: 350,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    padding: spacing.lg,
+  },
+  headerSpacer: {
+    height: Platform.OS === 'ios' ? 40 : 20,
+  },
+  addButtonCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
   },
-  title: {
+  addButtonIcon: {
     fontSize: 24,
+    color: '#fff',
     fontWeight: 'bold',
-    color: '#1f2937',
   },
-  form: {
-    gap: 16,
+  loadingWrapper: {
+    padding: spacing.xxl,
+    alignItems: 'center',
   },
-  formButtons: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
-  },
-  emptyText: {
-    textAlign: 'center',
-    padding: 20,
-    color: '#6b7280',
+  loadingText: {
+    marginTop: spacing.sm,
+    color: colors.secondary[600],
+    fontWeight: '500',
   },
   list: {
-    gap: 12,
+    gap: spacing.md,
+    marginTop: spacing.md,
   },
   listItem: {
-    backgroundColor: '#ffffff',
-    padding: 16,
-    borderRadius: 8,
+    backgroundColor: '#fff',
+    borderRadius: borderRadius.xl,
+    padding: spacing.lg,
+    ...shadows.md,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    marginBottom: 8,
+    borderColor: colors.secondary[50],
   },
-  listItemContent: {
-    marginBottom: 12,
+  listItemHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  vehicleIconContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: borderRadius.lg,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  vehicleIcon: {
+    fontSize: 26,
+  },
+  vehicleMainInfo: {
+    flex: 1,
+    marginLeft: spacing.md,
   },
   listItemName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1f2937',
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[900],
     marginBottom: 4,
   },
-  listItemDetail: {
+  capacityContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  capacityLabel: {
+    fontSize: 12,
+    color: colors.text.tertiary,
+  },
+  capacityValue: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: colors.secondary[600],
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: borderRadius.full,
+  },
+  statusText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    textTransform: 'uppercase',
+  },
+  driverSection: {
+    backgroundColor: colors.background.secondary,
+    padding: spacing.md,
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing.md,
+  },
+  driverLabel: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: colors.text.tertiary,
+    marginBottom: spacing.xs,
+  },
+  driverInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  miniAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.secondary[100],
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  miniAvatarText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: colors.secondary[700],
+  },
+  driverName: {
     fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 2,
+    fontWeight: '600',
+    color: colors.primary[800],
+  },
+  divider: {
+    height: 1,
+    backgroundColor: colors.secondary[50],
+    marginVertical: spacing.sm,
   },
   listItemActions: {
     flexDirection: 'row',
-    gap: 8,
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  actionButton: {
+  premiumActionBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+  },
+  editBtn: {
+    backgroundColor: '#fff',
+    borderColor: colors.secondary[200],
     flex: 1,
+    marginRight: spacing.md,
+  },
+  editBtnText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: colors.secondary[600],
+    textAlign: 'center',
+  },
+  iconActionBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.error[50],
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  iconEmoji: {
+    fontSize: 16,
+  },
+  formContainer: {
+    padding: spacing.md,
+  },
+  modalFooter: {
+    marginTop: spacing.xl,
+    gap: spacing.md,
+    alignItems: 'center',
+  },
+  modalSubmitBtn: {
+    width: '100%',
+  },
+  cancelLink: {
+    padding: spacing.sm,
+  },
+  cancelText: {
+    color: colors.text.tertiary,
+    fontWeight: '600',
+  },
+  emptyCard: {
+    padding: spacing.xxl,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: borderRadius.xl,
+  },
+  emptyEmoji: {
+    fontSize: 60,
+    marginBottom: spacing.md,
+    opacity: 0.5,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.text.tertiary,
+    marginBottom: spacing.xl,
+  },
+  emptyButton: {
+    width: '100%',
   },
 });
 

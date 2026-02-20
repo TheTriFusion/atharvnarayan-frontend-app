@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, Alert, Animated, Platform, StatusBar, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { getMilkTruckRoutes, getMilkTruckBMCs, addMilkTruckRoute, updateMilkTruckRoute, deleteMilkTruckRoute } from '../../../utils/storage';
 import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
@@ -10,6 +10,11 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { useOwner } from '../../../contexts/OwnerContext';
 import OwnerSelector from '../../../components/SuperAdmin/OwnerSelector';
 import { useToast } from '../../../contexts/ToastContext';
+import { colors } from '../../../theme/colors';
+import { spacing, borderRadius, shadows } from '../../../theme/spacing';
+import { typography } from '../../../theme/typography';
+import ScreenHeader from '../../../components/common/ScreenHeader';
+import LinearGradient from 'react-native-linear-gradient';
 
 const RouteManagement: React.FC = () => {
   const { isSuperAdmin } = useAuth();
@@ -24,13 +29,23 @@ const RouteManagement: React.FC = () => {
   });
   const [selectedBMCs, setSelectedBMCs] = useState<string[]>([]);
   const [bmcToAdd, setBMCToAdd] = useState<string>('');
+  const [loading, setLoading] = useState(true);
+
+  // Animations
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
 
   useEffect(() => {
     loadData();
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, tension: 50, friction: 8, useNativeDriver: true }),
+    ]).start();
   }, [selectedOwnerId]);
 
   const loadData = async () => {
     try {
+      setLoading(true);
       const ownerId = isSuperAdmin ? selectedOwnerId : null;
       const [routesData, bmcsData] = await Promise.all([
         getMilkTruckRoutes(ownerId),
@@ -43,6 +58,8 @@ const RouteManagement: React.FC = () => {
       showError(error.message || 'Failed to load data');
       setRoutes([]);
       setBMCs([]);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -105,7 +122,6 @@ const RouteManagement: React.FC = () => {
     setFormData({
       name: route.name || '',
     });
-    // Handle populated BMCs or ID strings
     const bmcIds = route.bmcSequence?.map((b: any) => (typeof b === 'object' ? b._id || b.id : b)) || [];
     setSelectedBMCs(bmcIds);
     setShowForm(true);
@@ -143,31 +159,10 @@ const RouteManagement: React.FC = () => {
     setShowForm(false);
   };
 
-  // Filter available BMCs
-  const getAvailableBMCs = () => {
-    // Get all BMCs currently assigned to other routes
-    const assignedBMCs = new Set();
-    routes.forEach(route => {
-      // If we are editing, we ignore the current route's existing BMCs in the "assigned check"
-      if (editingRoute && (route._id || route.id) === (editingRoute._id || editingRoute.id)) {
-        return; // Skip current route
-      }
-      if (Array.isArray(route.bmcSequence)) {
-        route.bmcSequence.forEach((bmc: any) => {
-          const bmcId = typeof bmc === 'object' ? (bmc._id || bmc.id) : bmc;
-          assignedBMCs.add(bmcId);
-        });
-      }
-    });
-
-    // Return BMCs that are NOT assigned to other routes AND not already selected in current form
-    return bmcs.filter(bmc => {
-      const bmcId = bmc._id || bmc.id;
-      return !assignedBMCs.has(bmcId) && !selectedBMCs.includes(bmcId);
-    });
-  };
-
-  const availableBMCs = getAvailableBMCs();
+  const availableBMCs = bmcs.filter(bmc => {
+    const bmcId = bmc._id || bmc.id;
+    return !selectedBMCs.includes(bmcId);
+  });
 
   const bmcOptions = availableBMCs.map(b => ({
     value: b._id || b.id,
@@ -175,322 +170,515 @@ const RouteManagement: React.FC = () => {
   }));
 
   return (
-    <ScrollView style={styles.container}>
-      {isSuperAdmin && <OwnerSelector systemType="milkTruck" />}
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+      <LinearGradient
+        colors={[colors.success[600], colors.success[400], colors.background.primary]}
+        style={styles.backgroundGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 0.8 }}
+      />
 
-      <View style={styles.header}>
-        <Text style={styles.title}>Route Management</Text>
-        <Button
-          variant="primary"
-          onPress={() => {
-            resetForm();
-            setShowForm(true);
-          }}
-        >
-          Add New Route
-        </Button>
-      </View>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {isSuperAdmin && <OwnerSelector systemType="milkTruck" />}
+
+        <View style={styles.headerSpacer} />
+        <ScreenHeader
+          title="Route Network"
+          subtitle="Define Strategic Logistics"
+          transparent
+          rightAction={
+            <TouchableOpacity
+              onPress={() => {
+                resetForm();
+                setShowForm(true);
+              }}
+              style={styles.addButtonCircle}
+            >
+              <Text style={styles.addButtonIcon}>+</Text>
+            </TouchableOpacity>
+          }
+        />
+
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+          {loading ? (
+            <View style={styles.loadingWrapper}>
+              <ActivityIndicator color={colors.success[500]} size="large" />
+              <Text style={styles.loadingText}>Mapping logistics...</Text>
+            </View>
+          ) : !Array.isArray(routes) || routes.length === 0 ? (
+            <Card style={styles.emptyCard}>
+              <Text style={styles.emptyEmoji}>🛣️</Text>
+              <Text style={styles.emptyText}>No routes established</Text>
+              <Button
+                variant="primary"
+                onPress={() => setShowForm(true)}
+                style={[styles.emptyButton, { backgroundColor: colors.success[600] }]}
+              >
+                Create First Route
+              </Button>
+            </Card>
+          ) : (
+            <View style={styles.list}>
+              {routes.map((route) => {
+                const routeBMCs = Array.isArray(route.bmcSequence) ? route.bmcSequence : [];
+                return (
+                  <View key={route._id || route.id} style={styles.listItem}>
+                    <View style={styles.listItemHeader}>
+                      <View style={[styles.routeIconContainer, { backgroundColor: colors.success[50] }]}>
+                        <Text style={styles.routeIcon}>🛣️</Text>
+                      </View>
+                      <View style={styles.routeMainInfo}>
+                        <Text style={styles.listItemName}>{route.name}</Text>
+                        <Text style={styles.stopCount}>{routeBMCs.length} Collections Centers</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.mapVisualContainer}>
+                      <View style={styles.timelineLine} />
+                      {routeBMCs.map((bmcData: any, idx: number) => {
+                        const bmcId = typeof bmcData === 'object' ? bmcData._id || bmcData.id : bmcData;
+                        const bmc = typeof bmcData === 'object' ? bmcData : (bmcs.find(b => (b._id || b.id) === bmcId));
+                        return (
+                          <View key={idx} style={styles.timelineItem}>
+                            <View style={[styles.timelineDot, { backgroundColor: idx === 0 ? colors.success[500] : colors.success[300] }]} />
+                            <Text style={styles.timelineText} numberOfLines={1}>
+                              {bmc?.name || 'Loading...'}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+
+                    <View style={styles.divider} />
+
+                    <View style={styles.listItemActions}>
+                      <TouchableOpacity
+                        onPress={() => handleEdit(route)}
+                        style={[styles.premiumActionBtn, styles.editBtn]}
+                      >
+                        <Text style={styles.editBtnText}>✏️ Refine Route</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={() => handleDelete(route._id || route.id)}
+                        style={styles.iconActionBtn}
+                      >
+                        <Text style={styles.iconEmoji}>🗑️</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+        </Animated.View>
+      </ScrollView>
 
       <Modal
         visible={showForm}
         onClose={resetForm}
-        title={editingRoute ? 'Edit Route' : 'Add New Route'}
+        title={editingRoute ? 'Refine Route' : 'Establish Route'}
       >
-        <ScrollView style={styles.modalContent}>
-          <View style={styles.form}>
+        <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+          <View style={styles.formContainer}>
             <Input
-              label="Route Name"
+              label="Route Identifier"
               value={formData.name}
               onChangeText={(value) => handleInputChange('name', value)}
-              required
-              placeholder="e.g., Route 1"
+              placeholder="e.g. Northern Hub Route"
             />
 
-            <View style={styles.bmcSection}>
-              <Text style={styles.bmcLabel}>Add BMCs to Route</Text>
-
-              <View style={styles.addBmcContainer}>
-                <View style={styles.selectContainer}>
+            <View style={styles.addBmcSection}>
+              <Text style={styles.selectionLabel}>Add Collection Centers</Text>
+              <View style={styles.addBmcPickerRow}>
+                <View style={styles.flex1}>
                   <Select
-                    label="Select BMC"
+                    label=""
                     value={bmcToAdd}
                     onChange={(value) => setBMCToAdd(value as string)}
                     options={[
-                      { value: '', label: 'Select a BMC' },
+                      { value: '', label: 'Select BMC' },
                       ...bmcOptions,
                     ]}
                   />
                 </View>
-                <Button
-                  variant="primary"
+                <TouchableOpacity
                   onPress={handleAddBMC}
                   disabled={!bmcToAdd}
-                  style={styles.addButton}
+                  style={[styles.miniAddBtn, !bmcToAdd && styles.disabledMiniBtn]}
                 >
-                  Add
-                </Button>
+                  <Text style={styles.miniAddBtnText}>Add</Text>
+                </TouchableOpacity>
               </View>
-
-              {selectedBMCs.length > 0 && (
-                <View style={styles.sequenceSection}>
-                  <Text style={styles.sequenceLabel}>Route Sequence (Order matters):</Text>
-                  {selectedBMCs.map((bmcId, index) => {
-                    const bmc = bmcs.find(b => (b._id || b.id) === bmcId);
-                    return (
-                      <View key={bmcId} style={styles.sequenceItem}>
-                        <View style={styles.sequenceInfo}>
-                          <Text style={styles.sequenceText}>
-                            {index + 1}. {bmc?.name || 'Unknown'}
-                          </Text>
-                          <Text style={styles.sequenceSubText}>
-                            {bmc?.location}
-                          </Text>
-                        </View>
-
-                        <View style={styles.sequenceActions}>
-                          <Button
-                            variant="secondary"
-                            onPress={() => moveBMC(index, 'up')}
-                            disabled={index === 0}
-                            style={styles.moveButton}
-                          >
-                            ↑
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            onPress={() => moveBMC(index, 'down')}
-                            disabled={index === selectedBMCs.length - 1}
-                            style={styles.moveButton}
-                          >
-                            ↓
-                          </Button>
-                          <Button
-                            variant="danger"
-                            onPress={() => handleRemoveBMC(index)}
-                            style={styles.removeButton}
-                          >
-                            ✕
-                          </Button>
-                        </View>
-                      </View>
-                    );
-                  })}
-                </View>
-              )}
-              {selectedBMCs.length === 0 && (
-                <Text style={styles.emptyBmcText}>No BMCs added yet. Select and add BMCs above.</Text>
-              )}
             </View>
 
-            <View style={styles.formButtons}>
-              <Button variant="primary" onPress={handleSubmit}>
-                {editingRoute ? 'Update' : 'Add'} Route
+            {selectedBMCs.length > 0 ? (
+              <View style={styles.sequenceEditList}>
+                <Text style={styles.selectionLabel}>Sequence Roadmap</Text>
+                {selectedBMCs.map((bmcId, index) => {
+                  const bmc = bmcs.find(b => (b._id || b.id) === bmcId);
+                  return (
+                    <View key={bmcId} style={styles.editableSequenceItem}>
+                      <View style={styles.seqIndex}>
+                        <Text style={styles.seqIndexText}>{index + 1}</Text>
+                      </View>
+                      <View style={styles.seqInfo}>
+                        <Text style={styles.seqName} numberOfLines={1}>{bmc?.name}</Text>
+                        <Text style={styles.seqLoc} numberOfLines={1}>{bmc?.location}</Text>
+                      </View>
+                      <View style={styles.seqActions}>
+                        <TouchableOpacity onPress={() => moveBMC(index, 'up')} disabled={index === 0} style={styles.seqMoveBtn}>
+                          <Text style={[styles.seqMoveText, index === 0 && styles.disabledText]}>↑</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => moveBMC(index, 'down')} disabled={index === selectedBMCs.length - 1} style={styles.seqMoveBtn}>
+                          <Text style={[styles.seqMoveText, index === selectedBMCs.length - 1 && styles.disabledText]}>↓</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => handleRemoveBMC(index)} style={styles.seqRemoveBtn}>
+                          <Text style={styles.seqRemoveText}>✕</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            ) : (
+              <View style={styles.emptyFormState}>
+                <Text style={styles.emptyFormText}>Add at least one BMC to build the route sequence.</Text>
+              </View>
+            )}
+
+            <View style={styles.modalFooter}>
+              <Button
+                variant="primary"
+                onPress={handleSubmit}
+                style={[styles.modalSubmitBtn, { backgroundColor: colors.success[600] }]}
+              >
+                {editingRoute ? 'Save Roadmap' : 'Create Route'}
               </Button>
-              <Button variant="secondary" onPress={resetForm}>
-                Cancel
-              </Button>
+              <TouchableOpacity onPress={resetForm} style={styles.cancelLink}>
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </ScrollView>
       </Modal>
-
-      <Card title="Route List">
-        {!Array.isArray(routes) || routes.length === 0 ? (
-          <Text style={styles.emptyText}>No routes found. Add your first route to get started.</Text>
-        ) : (
-          <View style={styles.list}>
-            {routes.map((route) => {
-              const routeBMCs = Array.isArray(route.bmcSequence) ? route.bmcSequence.map((id: any) => {
-                const bmcId = typeof id === 'object' ? (id._id || id.id) : id;
-                const bmcObj = typeof id === 'object' ? id : (Array.isArray(bmcs) ? bmcs.find(b => (b._id || b.id) === bmcId) : null);
-                return bmcObj?.name || 'Unknown';
-              }).join(' → ') : '';
-
-              return (
-                <View key={route._id || route.id} style={styles.listItem}>
-                  <View style={styles.listItemContent}>
-                    <Text style={styles.listItemName}>{route.name}</Text>
-                    <Text style={styles.listItemDetail}>📍 Sequence: {routeBMCs || 'None'}</Text>
-                  </View>
-                  <View style={styles.listItemActions}>
-                    <Button
-                      variant="secondary"
-                      onPress={() => handleEdit(route)}
-                      style={styles.actionButton}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      variant="danger"
-                      onPress={() => handleDelete(route._id || route.id)}
-                      style={styles.actionButton}
-                    >
-                      Delete
-                    </Button>
-                  </View>
-                </View>
-              );
-            })}
-          </View>
-        )}
-      </Card>
-    </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: colors.background.primary,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  backgroundGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: 350,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    padding: spacing.lg,
+  },
+  headerSpacer: {
+    height: Platform.OS === 'ios' ? 40 : 20,
+  },
+  addButtonCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
   },
-  title: {
+  addButtonIcon: {
     fontSize: 24,
+    color: '#fff',
     fontWeight: 'bold',
-    color: '#1f2937',
   },
-  modalContent: {
-    maxHeight: 600,
-  },
-  form: {
-    gap: 16,
-  },
-  bmcSection: {
-    marginBottom: 16,
-  },
-  bmcLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
-    marginBottom: 8,
-  },
-  addBmcContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 8,
-    marginBottom: 8
-  },
-  selectContainer: {
-    flex: 1,
-  },
-  addButton: {
-    height: 48,
-    justifyContent: 'center',
-    marginBottom: 16 // align with input
-  },
-  sequenceSection: {
-    marginTop: 16,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 8,
-    padding: 12,
-    backgroundColor: '#f9fafb',
-    gap: 8
-  },
-  sequenceLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
-    marginBottom: 4,
-  },
-  sequenceItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  loadingWrapper: {
+    padding: spacing.xxl,
     alignItems: 'center',
-    backgroundColor: '#ffffff',
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
   },
-  sequenceInfo: {
-    flex: 1,
-  },
-  sequenceText: {
-    fontSize: 14,
+  loadingText: {
+    marginTop: spacing.sm,
+    color: colors.success[600],
     fontWeight: '500',
-    color: '#1f2937',
-  },
-  sequenceSubText: {
-    fontSize: 12,
-    color: '#6b7280',
-  },
-  sequenceActions: {
-    flexDirection: 'row',
-    gap: 4,
-    marginLeft: 8
-  },
-  moveButton: {
-    paddingHorizontal: 8,
-    minWidth: 36,
-    height: 36,
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  removeButton: {
-    paddingHorizontal: 8,
-    minWidth: 36,
-    height: 36,
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  formButtons: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
-  },
-  emptyText: {
-    textAlign: 'center',
-    padding: 20,
-    color: '#6b7280',
-  },
-  emptyBmcText: {
-    fontSize: 13,
-    color: '#6b7280',
-    fontStyle: 'italic',
-    marginTop: 8,
   },
   list: {
-    gap: 12,
+    gap: spacing.md,
+    marginTop: spacing.md,
   },
   listItem: {
-    backgroundColor: '#ffffff',
-    padding: 16,
-    borderRadius: 8,
+    backgroundColor: '#fff',
+    borderRadius: borderRadius.xl,
+    padding: spacing.lg,
+    ...shadows.md,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    marginBottom: 8,
+    borderColor: 'rgba(16, 185, 129, 0.1)',
   },
-  listItemContent: {
-    marginBottom: 12,
+  listItemHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  routeIconContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: borderRadius.lg,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  routeIcon: {
+    fontSize: 26,
+  },
+  routeMainInfo: {
+    flex: 1,
+    marginLeft: spacing.md,
   },
   listItemName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1f2937',
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[900],
     marginBottom: 4,
   },
-  listItemDetail: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 2,
+  stopCount: {
+    fontSize: 12,
+    color: colors.success[700],
+    fontWeight: 'bold',
+  },
+  mapVisualContainer: {
+    backgroundColor: colors.background.secondary,
+    padding: spacing.md,
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing.md,
+    position: 'relative',
+    gap: spacing.xs,
+  },
+  timelineLine: {
+    position: 'absolute',
+    left: 21,
+    top: 25,
+    bottom: 25,
+    width: 2,
+    backgroundColor: colors.success[100],
+  },
+  timelineItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  timelineDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginLeft: 3,
+    zIndex: 1,
+  },
+  timelineText: {
+    fontSize: 12,
+    color: colors.text.secondary,
+    fontWeight: '500',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    marginVertical: spacing.sm,
   },
   listItemActions: {
     flexDirection: 'row',
-    gap: 8,
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  actionButton: {
+  premiumActionBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+  },
+  editBtn: {
+    backgroundColor: '#fff',
+    borderColor: colors.success[200],
     flex: 1,
+    marginRight: spacing.md,
+  },
+  editBtnText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: colors.success[600],
+    textAlign: 'center',
+  },
+  iconActionBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.error[50],
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  iconEmoji: {
+    fontSize: 16,
+  },
+  modalScroll: {
+    maxHeight: 550,
+  },
+  formContainer: {
+    padding: spacing.md,
+  },
+  addBmcSection: {
+    marginTop: spacing.sm,
+  },
+  selectionLabel: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: colors.text.secondary,
+    marginBottom: spacing.sm,
+  },
+  addBmcPickerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  flex1: {
+    flex: 1,
+  },
+  miniAddBtn: {
+    backgroundColor: colors.success[600],
+    paddingHorizontal: 16,
+    height: 48,
+    borderRadius: borderRadius.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  disabledMiniBtn: {
+    backgroundColor: colors.background.tertiary,
+  },
+  miniAddBtnText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  sequenceEditList: {
+    marginTop: spacing.lg,
+    gap: spacing.xs,
+  },
+  editableSequenceItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.background.secondary,
+    padding: spacing.sm,
+    borderRadius: borderRadius.md,
+    gap: spacing.sm,
+  },
+  seqIndex: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.success[100],
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  seqIndexText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: colors.success[700],
+  },
+  seqInfo: {
+    flex: 1,
+  },
+  seqName: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: colors.primary[900],
+  },
+  seqLoc: {
+    fontSize: 11,
+    color: colors.text.tertiary,
+  },
+  seqActions: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  seqMoveBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border.light,
+  },
+  seqMoveText: {
+    fontSize: 16,
+    color: colors.primary[600],
+  },
+  seqRemoveBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    backgroundColor: colors.error[50],
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  seqRemoveText: {
+    fontSize: 12,
+    color: colors.error[600],
+    fontWeight: 'bold',
+  },
+  disabledText: {
+    color: colors.text.tertiary,
+    opacity: 0.3,
+  },
+  emptyFormState: {
+    padding: spacing.xl,
+    alignItems: 'center',
+  },
+  emptyFormText: {
+    color: colors.text.tertiary,
+    textAlign: 'center',
+    fontSize: 12,
+    fontStyle: 'italic',
+  },
+  modalFooter: {
+    marginTop: spacing.xl,
+    gap: spacing.md,
+    alignItems: 'center',
+  },
+  modalSubmitBtn: {
+    width: '100%',
+  },
+  cancelLink: {
+    padding: spacing.sm,
+  },
+  cancelText: {
+    color: colors.text.tertiary,
+    fontWeight: '600',
+  },
+  emptyCard: {
+    padding: spacing.xxl,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: borderRadius.xl,
+  },
+  emptyEmoji: {
+    fontSize: 60,
+    marginBottom: spacing.md,
+    opacity: 0.5,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.text.tertiary,
+    marginBottom: spacing.xl,
+  },
+  emptyButton: {
+    width: '100%',
   },
 });
 

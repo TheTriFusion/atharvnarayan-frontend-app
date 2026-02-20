@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, Animated, Platform, StatusBar, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { getMilkTruckPricing, setMilkTruckPricing } from '../../../utils/storage';
 import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
@@ -8,6 +8,11 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { useOwner } from '../../../contexts/OwnerContext';
 import OwnerSelector from '../../../components/SuperAdmin/OwnerSelector';
 import { useToast } from '../../../contexts/ToastContext';
+import { colors } from '../../../theme/colors';
+import { spacing, borderRadius, shadows } from '../../../theme/spacing';
+import { typography } from '../../../theme/typography';
+import ScreenHeader from '../../../components/common/ScreenHeader';
+import LinearGradient from 'react-native-linear-gradient';
 
 const PricingManagement: React.FC = () => {
   const { isSuperAdmin } = useAuth();
@@ -20,8 +25,16 @@ const PricingManagement: React.FC = () => {
   });
   const [loading, setLoading] = useState(true);
 
+  // Animations
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
+
   useEffect(() => {
     loadPricing();
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, tension: 50, friction: 8, useNativeDriver: true }),
+    ]).start();
   }, [selectedOwnerId]);
 
   const loadPricing = async () => {
@@ -59,120 +72,246 @@ const PricingManagement: React.FC = () => {
     }
   };
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading pricing configuration...</Text>
-      </View>
-    );
-  }
-
   return (
-    <ScrollView style={styles.container}>
-      {isSuperAdmin && <OwnerSelector systemType="milkTruck" />}
-      
-      <Text style={styles.title}>Pricing Management</Text>
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+      <LinearGradient
+        colors={['#F59E0B', '#D97706', colors.background.primary]}
+        style={styles.backgroundGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 0.8 }}
+      />
 
-      <Card title="Set Pricing Rules">
-        <View style={styles.form}>
-          <Input
-            label="Base Price Per Liter (₹)"
-            value={pricing.basePricePerLiter.toString()}
-            onChangeText={(value) => handleInputChange('basePricePerLiter', value)}
-            disabled={loading}
-            required
-            keyboardType="decimal-pad"
-            placeholder="Enter base price per liter"
-          />
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {isSuperAdmin && <OwnerSelector systemType="milkTruck" />}
 
-          <Input
-            label="Fat Price Per Percent (₹)"
-            value={pricing.fatPricePerPercent.toString()}
-            onChangeText={(value) => handleInputChange('fatPricePerPercent', value)}
-            disabled={loading}
-            required
-            keyboardType="decimal-pad"
-            placeholder="Enter price per fat percent"
-          />
+        <View style={styles.headerSpacer} />
+        <ScreenHeader
+          title="Revenue Configuration"
+          subtitle="Define Milk Pricing Algorithms"
+          transparent
+        />
 
-          <Input
-            label="SNF Price Per Percent (₹)"
-            value={pricing.snfPricePerPercent.toString()}
-            onChangeText={(value) => handleInputChange('snfPricePerPercent', value)}
-            disabled={loading}
-            required
-            keyboardType="decimal-pad"
-            placeholder="Enter price per SNF percent"
-          />
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+          {loading ? (
+            <View style={styles.loadingWrapper}>
+              <ActivityIndicator color="#D97706" size="large" />
+              <Text style={styles.loadingText}>Calibrating pricing engine...</Text>
+            </View>
+          ) : (
+            <View style={styles.content}>
+              <View style={styles.pricingGrid}>
+                <View style={styles.pricingCard}>
+                  <View style={styles.pricingIconBox}>
+                    <Text style={styles.pricingEmoji}>🥛</Text>
+                  </View>
+                  <Text style={styles.pricingLabel}>Base Price</Text>
+                  <View style={styles.inputWrapper}>
+                    <Text style={styles.currency}>₹</Text>
+                    <Input
+                      label=""
+                      value={pricing.basePricePerLiter.toString()}
+                      onChangeText={(value) => handleInputChange('basePricePerLiter', value)}
+                      keyboardType="decimal-pad"
+                      containerStyle={styles.nakedInput}
+                    />
+                  </View>
+                  <Text style={styles.perUnit}>per Liter</Text>
+                </View>
 
-          <Button variant="primary" onPress={handleSubmit} disabled={loading}>
-            Update Pricing
-          </Button>
-        </View>
-      </Card>
+                <View style={styles.pricingCard}>
+                  <View style={[styles.pricingIconBox, { backgroundColor: '#FEF3C7' }]}>
+                    <Text style={styles.pricingEmoji}>🧈</Text>
+                  </View>
+                  <Text style={styles.pricingLabel}>Fat Premium</Text>
+                  <View style={styles.inputWrapper}>
+                    <Text style={styles.currency}>₹</Text>
+                    <Input
+                      label=""
+                      value={pricing.fatPricePerPercent.toString()}
+                      onChangeText={(value) => handleInputChange('fatPricePerPercent', value)}
+                      keyboardType="decimal-pad"
+                      containerStyle={styles.nakedInput}
+                    />
+                  </View>
+                  <Text style={styles.perUnit}>per Fat %</Text>
+                </View>
 
-      <Card title="Pricing Calculation Formula" style={styles.formulaCard}>
-        <View style={styles.formulaContent}>
-          <Text style={styles.formulaText}><Text style={styles.formulaBold}>Total Price =</Text></Text>
-          <Text style={styles.formulaDetail}>
-            (Base Price × Total Liters) + (Fat Price × Fat% × Total Liters) + (SNF Price × SNF% × Total Liters)
-          </Text>
-          <Text style={styles.formulaNote}>
-            This formula will be used to calculate payments for completed trips.
-          </Text>
-        </View>
-      </Card>
-    </ScrollView>
+                <View style={[styles.pricingCard, { width: '100%' }]}>
+                  <View style={[styles.pricingIconBox, { backgroundColor: '#E0F2FE' }]}>
+                    <Text style={styles.pricingEmoji}>🧬</Text>
+                  </View>
+                  <Text style={styles.pricingLabel}>SNF Premium</Text>
+                  <View style={styles.inputWrapper}>
+                    <Text style={styles.currency}>₹</Text>
+                    <Input
+                      label=""
+                      value={pricing.snfPricePerPercent.toString()}
+                      onChangeText={(value) => handleInputChange('snfPricePerPercent', value)}
+                      keyboardType="decimal-pad"
+                      containerStyle={styles.nakedInput}
+                    />
+                  </View>
+                  <Text style={styles.perUnit}>per SNF %</Text>
+                </View>
+              </View>
+
+              <Button
+                variant="primary"
+                onPress={handleSubmit}
+                style={styles.updateBtn}
+              >
+                Apply Updated Pricing
+              </Button>
+
+              <View style={styles.formulaSection}>
+                <LinearGradient
+                  colors={['#FFFBEB', '#FEF3C7']}
+                  style={styles.formulaGradient}
+                >
+                  <Text style={styles.formulaTitle}>Pricing Logic Formula</Text>
+                  <View style={styles.formulaBox}>
+                    <Text style={styles.mainFormula}>
+                      Total = (Base × Qty) + (Fat × Fat% × Qty) + (SNF × SNF% × Qty)
+                    </Text>
+                  </View>
+                  <Text style={styles.formulaExplanation}>
+                    This logic applies to all collection centers in your network.
+                    Changes take effect for future trips immediately.
+                  </Text>
+                </LinearGradient>
+              </View>
+            </View>
+          )}
+        </Animated.View>
+      </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: colors.background.primary,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  backgroundGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: 350,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    padding: spacing.lg,
+  },
+  headerSpacer: {
+    height: Platform.OS === 'ios' ? 40 : 20,
+  },
+  loadingWrapper: {
+    padding: spacing.xxl,
     alignItems: 'center',
   },
   loadingText: {
-    fontSize: 18,
-    color: '#6b7280',
+    marginTop: spacing.sm,
+    color: '#D97706',
+    fontWeight: '500',
   },
-  title: {
+  content: {
+    marginTop: spacing.md,
+  },
+  pricingGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+  },
+  pricingCard: {
+    backgroundColor: '#fff',
+    borderRadius: borderRadius.xl,
+    padding: spacing.lg,
+    width: '47.5%',
+    alignItems: 'center',
+    ...shadows.md,
+    borderWidth: 1,
+    borderColor: 'rgba(217, 119, 6, 0.1)',
+  },
+  pricingIconBox: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#F3E8FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  pricingEmoji: {
     fontSize: 24,
+  },
+  pricingLabel: {
+    fontSize: 12,
     fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: 16,
+    color: colors.text.tertiary,
+    textTransform: 'uppercase',
+    marginBottom: spacing.xs,
   },
-  form: {
-    gap: 16,
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
-  formulaCard: {
-    marginTop: 16,
-  },
-  formulaContent: {
-    gap: 8,
-  },
-  formulaText: {
-    fontSize: 16,
-    color: '#374151',
-  },
-  formulaBold: {
-    fontWeight: '600',
-  },
-  formulaDetail: {
-    fontSize: 14,
-    color: '#374151',
-    marginLeft: 16,
+  currency: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: colors.primary[900],
     marginTop: 4,
   },
-  formulaNote: {
+  nakedInput: {
+    minWidth: 60,
+  },
+  perUnit: {
+    fontSize: 12,
+    color: colors.text.tertiary,
+    marginTop: -8,
+  },
+  updateBtn: {
+    marginTop: spacing.xl,
+    backgroundColor: '#D97706',
+  },
+  formulaSection: {
+    marginTop: spacing.xxl,
+    borderRadius: borderRadius.xl,
+    overflow: 'hidden',
+    ...shadows.sm,
+  },
+  formulaGradient: {
+    padding: spacing.xl,
+  },
+  formulaTitle: {
     fontSize: 14,
-    color: '#6b7280',
-    marginTop: 8,
+    fontWeight: 'bold',
+    color: '#92400E',
+    marginBottom: spacing.md,
+  },
+  formulaBox: {
+    backgroundColor: 'rgba(255,255,255,0.5)',
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    marginBottom: spacing.md,
+  },
+  mainFormula: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#B45309',
+    textAlign: 'center',
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
+  formulaExplanation: {
+    fontSize: 12,
+    color: '#92400E',
+    lineHeight: 18,
+    opacity: 0.8,
   },
 });
 

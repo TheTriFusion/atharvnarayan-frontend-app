@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, StatusBar } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, StatusBar, Animated, ActivityIndicator } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import { getMilkTruckTrips, getMilkTruckBMCs, getMilkTruckVehicles, getMilkTruckRoutes, getMilkTruckPricing } from '../../../utils/storage';
@@ -25,6 +25,9 @@ const OwnerTripDetails: React.FC = () => {
     const [basePricePerLiter, setBasePricePerLiter] = useState('50');
     const [fatPricePerPercent, setFatPricePerPercent] = useState('2');
     const [snfPricePerPercent, setSnfPricePerPercent] = useState('1');
+
+    // Animations
+    const fadeAnim = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
         if (tripId) {
@@ -63,6 +66,8 @@ const OwnerTripDetails: React.FC = () => {
                 setFatPricePerPercent(pricingData.fatPricePerPercent?.toString() || '2');
                 setSnfPricePerPercent(pricingData.snfPricePerPercent?.toString() || '1');
             }
+
+            Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }).start();
         } catch (error) {
             console.error('Error loading trip details:', error);
         } finally {
@@ -73,7 +78,8 @@ const OwnerTripDetails: React.FC = () => {
     if (loading || !trip) {
         return (
             <View style={styles.loadingContainer}>
-                <Text style={styles.loadingText}>Loading details...</Text>
+                <ActivityIndicator color={colors.primary[600]} size="large" />
+                <Text style={styles.loadingText}>Loading settlement data...</Text>
             </View>
         );
     }
@@ -82,7 +88,6 @@ const OwnerTripDetails: React.FC = () => {
     const tripRoute = routes.find((r: any) => (r._id || r.id) === (trip.routeId?._id || trip.routeId?.id || trip.routeId));
     const bmcEntries = trip.bmcEntries || [];
 
-    // Calculate dairy-verified (At Dairy) totals
     const dairyTotals = trip.bmcEntries?.reduce((acc: any, entry: any) => {
         const data = entry.dairyVerifiedData || entry.collectionData;
         if (!data) return acc;
@@ -101,195 +106,367 @@ const OwnerTripDetails: React.FC = () => {
     const dairyAvgFat = dairyTotals.milk > 0 ? (dairyTotals.fatKg / dairyTotals.milk) * 100 : 0;
     const dairyAvgSnf = dairyTotals.milk > 0 ? (dairyTotals.snfKg / dairyTotals.milk) * 100 : 0;
 
-    const calculatePrice = () => {
+    // Unified Totals & Variance Calculation
+    const collectionTotals = trip.bmcEntries?.reduce((acc: any, entry: any) => {
+        const data = entry.collectionData;
+        if (!data) return acc;
+        const milk = parseFloat(data.milkQuantity) || 0;
+        const fat = parseFloat(data.fatContent) || 0;
+        const snf = parseFloat(data.snfContent) || 0;
+        acc.milk += milk;
+        acc.fatKg += (milk * fat) / 100;
+        acc.snfKg += (milk * snf) / 100;
+        return acc;
+    }, { milk: 0, fatKg: 0, snfKg: 0 }) || { milk: 0, fatKg: 0, snfKg: 0 };
+
+    const calculateSettlement = () => {
         const basePrice = parseFloat(basePricePerLiter) || 0;
         const fatPrice = parseFloat(fatPricePerPercent) || 0;
         const snfPrice = parseFloat(snfPricePerPercent) || 0;
 
-        const totalMilkPrice = basePrice * dairyTotals.milk;
-        const totalFatPrice = fatPrice * dairyAvgFat;
-        const totalSnfPrice = snfPrice * dairyAvgSnf;
+        // Physical Variances
+        const milkVar = dairyTotals.milk - collectionTotals.milk;
+        const fatKgVar = dairyTotals.fatKg - collectionTotals.fatKg;
+        const snfKgVar = dairyTotals.snfKg - collectionTotals.snfKg;
 
-        return totalMilkPrice + totalFatPrice + totalSnfPrice;
+        // Monetary Values
+        // Note: For Fat/SNF, the price is per %, so we convert KG variance back to % context for consistency or price per KG if applicable.
+        // In the existing calc: fatPrice * dairyAvgFat. 
+        // dairyAvgFat = (fatKg / milk) * 100.
+        // So fatPrice * (fatKg / milk) * 100.
+
+        const milkPayment = basePrice * dairyTotals.milk;
+        const fatBonus = fatPrice * dairyAvgFat;
+        const snfBonus = snfPrice * dairyAvgSnf;
+
+        // Variance Monetary Impact
+        // If the user adds price, we calculate how much money was lost/gained relative to what was collected
+        const milkVarValue = milkVar * basePrice;
+
+        // For Fat/SNF we use the shift in percentage points vs volume collected? 
+        // Usually, variance is simpler: (DairyTotal - CollTotal) * Rate.
+        // If Rate is based on Fat%... it's complicated. Let's use the Base Price for Milk Variance.
+
+        const milkVarImpact = milkVar * basePrice;
+        const fatVarImpact = fatKgVar * fatPrice;
+        const snfVarImpact = snfKgVar * snfPrice;
+
+        return {
+            milkPrice: basePrice * dairyTotals.milk,
+            fatPrice: fatPrice * dairyAvgFat,
+            snfPrice: snfPrice * dairyAvgSnf,
+            totalVariancePrice: milkVarImpact + fatVarImpact + snfVarImpact,
+            variances: {
+                milk: milkVar,
+                fatKg: fatKgVar,
+                snfKg: snfKgVar,
+                milkImpact: milkVarImpact,
+                fatImpact: fatVarImpact,
+                snfImpact: snfVarImpact,
+            }
+        };
     };
 
-    const totalPrice = calculatePrice();
-    const displayTripId = (trip._id || trip.id).toString().substring((trip._id || trip.id).toString().length - 6);
+    const settlement = calculateSettlement();
+    const displayTripId = (trip._id || trip.id).toString().substring((trip._id || trip.id).toString().length - 6).toUpperCase();
 
     return (
         <View style={styles.container}>
             <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
             <LinearGradient
-                colors={[colors.primary[50], '#FFFFFF']}
-                style={styles.gradient}
+                colors={['#F0FDF4', '#FFFFFF']}
+                style={styles.headerGradient}
             />
 
             <ScreenHeader
-                title="Payment Details"
+                title="Settlement Detail"
                 subtitle={`Trip #${displayTripId}`}
                 showBackButton
                 transparent
+                style={styles.customHeader}
             />
 
-            <ScrollView
-                style={styles.scrollContainer}
-                contentContainerStyle={styles.content}
-                showsVerticalScrollIndicator={false}
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                style={{ flex: 1 }}
             >
-                {/* Status Badge & Basic Info */}
-                <View style={styles.headerRow}>
-                    <View style={styles.statusBadge}>
-                        <View style={[styles.statusDot, { backgroundColor: colors.success[500] }]} />
-                        <Text style={styles.statusText}>Completed</Text>
-                    </View>
-                    <Text style={styles.dateTimeText}>
-                        {new Date(trip.endTime || trip.startTime).toLocaleString()}
-                    </Text>
-                </View>
-
-                {/* Info Card */}
-                <Card variant="elevated" style={styles.infoCard}>
-                    <View style={styles.infoGrid}>
-                        <View style={styles.infoItem}>
-                            <Text style={styles.infoLabel}>ROUTE</Text>
-                            <Text style={styles.infoValue} numberOfLines={1}>{tripRoute?.name || 'N/A'}</Text>
-                        </View>
-                        <View style={styles.infoItem}>
-                            <Text style={styles.infoLabel}>VEHICLE</Text>
-                            <Text style={styles.infoValue}>{vehicle?.registrationNumber || 'N/A'}</Text>
-                        </View>
-                        <View style={styles.infoItem}>
-                            <Text style={styles.infoLabel}>COLLECTED</Text>
-                            <Text style={styles.infoValue}>{trip.summary?.totalMilk?.toFixed(2) || '0.00'} L</Text>
-                        </View>
-                        <View style={styles.infoItem}>
-                            <Text style={styles.infoLabel}>BMCs</Text>
-                            <Text style={styles.infoValue}>{bmcEntries.length}</Text>
-                        </View>
-                    </View>
-                </Card>
-
-                {/* Summary Section */}
-                <Text style={styles.sectionTitle}>Verified Summary (At Dairy)</Text>
-                <View style={styles.summaryContainer}>
-                    <LinearGradient
-                        colors={[colors.success[500], colors.success[600]]}
-                        style={styles.mainSummaryCard}
-                    >
-                        <View style={styles.summaryMainTop}>
-                            <Text style={styles.summaryMainLabel}>Total Verified Milk</Text>
-                            <Text style={styles.summaryMainValue}>{dairyTotals.milk.toFixed(2)} L</Text>
-                        </View>
-                        <View style={styles.summaryDivider} />
-                        <View style={styles.summaryMainBottom}>
-                            <View style={styles.summarySubItem}>
-                                <Text style={styles.summarySubLabel}>Avg Fat</Text>
-                                <Text style={styles.summarySubValue}>{dairyAvgFat.toFixed(2)}%</Text>
+                <ScrollView
+                    style={styles.scrollContainer}
+                    contentContainerStyle={styles.content}
+                    showsVerticalScrollIndicator={false}
+                    keyboardShouldPersistTaps="handled"
+                >
+                    <Animated.View style={{ opacity: fadeAnim }}>
+                        {/* Status & Date */}
+                        <View style={styles.metaRow}>
+                            <View style={styles.statusChip}>
+                                <Text style={styles.statusChipText}>VERIFIED</Text>
                             </View>
-                            <View style={styles.summarySubItem}>
-                                <Text style={styles.summarySubLabel}>Avg SNF</Text>
-                                <Text style={styles.summarySubValue}>{dairyAvgSnf.toFixed(2)}%</Text>
+                            <Text style={styles.dateText}>
+                                {new Date(trip.endTime || trip.startTime).toLocaleDateString(undefined, {
+                                    day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                                })}
+                            </Text>
+                        </View>
+
+                        {/* Mission Overview */}
+                        <View style={styles.overviewGrid}>
+                            <View style={styles.overviewCard}>
+                                <Text style={styles.ovLabel}>ROUTE</Text>
+                                <Text style={styles.ovValue} numberOfLines={1}>{tripRoute?.name || 'N/A'}</Text>
+                            </View>
+                            <View style={styles.overviewCard}>
+                                <Text style={styles.ovLabel}>VEHICLE</Text>
+                                <Text style={styles.ovValue}>{vehicle?.registrationNumber || 'N/A'}</Text>
                             </View>
                         </View>
-                    </LinearGradient>
-                </View>
 
-                {/* Comparison Section */}
-                <Text style={styles.sectionTitle}>BMC Comparison</Text>
-                <Card variant="elevated" style={styles.tableCard}>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                        <View>
-                            <View style={styles.tableHeader}>
-                                <Text style={[styles.tableHeaderText, { width: 100, textAlign: 'left' }]}>BMC Name</Text>
-                                <Text style={[styles.tableHeaderText, { width: 80 }]}>Collection</Text>
-                                <Text style={[styles.tableHeaderText, { width: 80 }]}>Verified</Text>
-                                <Text style={[styles.tableHeaderText, { width: 80 }]}>Variance</Text>
+                        {/* Hero Verification Card */}
+                        <LinearGradient
+                            colors={[colors.success[600], colors.success[400]]}
+                            style={styles.heroSummaryCard}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                        >
+                            <View style={styles.heroTop}>
+                                <Text style={styles.heroLabel}>Verified Milk Intake</Text>
+                                <Text style={styles.heroValue}>{dairyTotals.milk.toFixed(2)} <Text style={styles.unit}>Ltrs</Text></Text>
                             </View>
+                            <View style={styles.heroBottom}>
+                                <View style={styles.heroStat}>
+                                    <Text style={styles.hsLabel}>Avg Fat</Text>
+                                    <Text style={styles.hsValue}>{dairyAvgFat.toFixed(2)}%</Text>
+                                </View>
+                                <View style={styles.heroDivider} />
+                                <View style={styles.heroStat}>
+                                    <Text style={styles.hsLabel}>Avg SNF</Text>
+                                    <Text style={styles.hsValue}>{dairyAvgSnf.toFixed(2)}%</Text>
+                                </View>
+                            </View>
+
+                            {/* Trip Variance Summary */}
+                            <View style={styles.varianceSummaryRow}>
+                                <View style={styles.varianceSummaryItem}>
+                                    <Text style={styles.varianceSummaryLabel}>Milk:</Text>
+                                    <Text style={[styles.varianceSummaryValue, {
+                                        color: settlement.variances.milk < 0 ? '#FECACA' : settlement.variances.milk > 0 ? '#BBF7D0' : 'rgba(255,255,255,0.6)'
+                                    }]}>
+                                        {settlement.variances.milk > 0 ? '+' : ''}{settlement.variances.milk.toFixed(2)}L
+                                    </Text>
+                                </View>
+                                <View style={styles.varianceSummaryItem}>
+                                    <Text style={styles.varianceSummaryLabel}>Fat KG:</Text>
+                                    <Text style={[styles.varianceSummaryValue, {
+                                        color: settlement.variances.fatKg < 0 ? '#FECACA' : settlement.variances.fatKg > 0 ? '#BBF7D0' : 'rgba(255,255,255,0.6)'
+                                    }]}>
+                                        {settlement.variances.fatKg > 0 ? '+' : ''}{settlement.variances.fatKg.toFixed(2)}kg
+                                    </Text>
+                                </View>
+                                <View style={styles.varianceSummaryItem}>
+                                    <Text style={styles.varianceSummaryLabel}>SNF KG:</Text>
+                                    <Text style={[styles.varianceSummaryValue, {
+                                        color: settlement.variances.snfKg < 0 ? '#FECACA' : settlement.variances.snfKg > 0 ? '#BBF7D0' : 'rgba(255,255,255,0.6)'
+                                    }]}>
+                                        {settlement.variances.snfKg > 0 ? '+' : ''}{settlement.variances.snfKg.toFixed(2)}kg
+                                    </Text>
+                                </View>
+                            </View>
+                        </LinearGradient>
+
+                        {/* BMC Audit Section */}
+                        <View style={styles.sectionHeader}>
+                            <Text style={styles.sectionTitle}>Collection Audit</Text>
+                            <View style={styles.sectionIcon}>
+                                <Text style={styles.siText}>📍</Text>
+                            </View>
+                        </View>
+
+                        <Card style={styles.auditCard}>
                             {bmcEntries.map((entry: any, index: number) => {
-                                const bmcName = entry.bmcId?.name || bmcs.find((b: any) => (b._id || b.id) === (entry.bmcId?._id || entry.bmcId))?.name || 'Unknown';
+                                const bmcId = entry.bmcId?._id || entry.bmcId;
+                                const bmcName = entry.bmcId?.name || bmcs.find((b: any) => (b._id || b.id) === bmcId)?.name || 'Unknown';
                                 const collMilk = parseFloat(entry.collectionData?.milkQuantity || 0);
-                                const verifiedMilk = parseFloat((entry.dairyVerifiedData || entry.collectionData)?.milkQuantity || 0);
-                                const variance = verifiedMilk - collMilk;
+                                const collFat = parseFloat(entry.collectionData?.fatContent || 0);
+                                const collSnf = parseFloat(entry.collectionData?.snfContent || 0);
+
+                                const verifiedData = entry.dairyVerifiedData || entry.collectionData;
+                                const verifiedMilk = parseFloat(verifiedData?.milkQuantity || 0);
+                                const verifiedFat = parseFloat(verifiedData?.fatContent || 0);
+                                const verifiedSnf = parseFloat(verifiedData?.snfContent || 0);
+
+                                const milkVar = verifiedMilk - collMilk;
+                                const collFatKg = (collMilk * collFat) / 100;
+                                const verifiedFatKg = (verifiedMilk * verifiedFat) / 100;
+                                const fatVarKg = verifiedFatKg - collFatKg;
+
+                                const collSnfKg = (collMilk * collSnf) / 100;
+                                const verifiedSnfKg = (verifiedMilk * verifiedSnf) / 100;
+                                const snfVarKg = verifiedSnfKg - collSnfKg;
+
+                                const getVarColor = (val: number) => val < 0 ? colors.error[600] : val > 0 ? colors.success[600] : colors.text.tertiary;
 
                                 return (
-                                    <View key={index} style={styles.tableRow}>
-                                        <Text style={[styles.tableCellText, { width: 100, textAlign: 'left', fontWeight: 'bold' }]} numberOfLines={1}>
-                                            {bmcName}
-                                        </Text>
-                                        <Text style={[styles.tableCellText, { width: 80 }]}>{collMilk.toFixed(2)}</Text>
-                                        <Text style={[styles.tableCellText, { width: 80, color: colors.success[700] }]}>{verifiedMilk.toFixed(2)}</Text>
-                                        <Text style={[styles.tableCellText, {
-                                            width: 80,
-                                            fontWeight: 'bold',
-                                            color: variance < 0 ? colors.error[600] : variance > 0 ? colors.success[600] : colors.text.tertiary
-                                        }]}>
-                                            {variance !== 0 ? (variance > 0 ? '+' : '') + variance.toFixed(2) : '0.00'}
-                                        </Text>
-                                    </View>
+                                    <TouchableOpacity
+                                        key={index}
+                                        style={[styles.auditRow, index === bmcEntries.length - 1 && { borderBottomWidth: 0 }]}
+                                        onPress={() => navigation.navigate('MilkTruckOwnerBMCs', { bmcId })}
+                                        activeOpacity={0.7}
+                                    >
+                                        <View style={styles.auditHeader}>
+                                            <View>
+                                                <Text style={styles.auditName}>{bmcName}</Text>
+                                                <Text style={styles.auditActionHint}>Tap to view performance analytics 📊</Text>
+                                            </View>
+                                            <View style={styles.auditStatusBadge}>
+                                                <Text style={styles.verifiedText}>Verified: {verifiedMilk.toFixed(1)}L</Text>
+                                            </View>
+                                        </View>
+
+                                        <View style={styles.auditDetailGrid}>
+                                            {/* Milk Metric */}
+                                            <View style={styles.metricItem}>
+                                                <Text style={styles.metricLabel}>Milk (L)</Text>
+                                                <View style={styles.metricValueRow}>
+                                                    <Text style={styles.collValue}>{collMilk.toFixed(1)}</Text>
+                                                    <Text style={styles.arrowIcon}>→</Text>
+                                                    <Text style={[styles.varValue, { color: getVarColor(milkVar) }]}>
+                                                        {milkVar > 0 ? '+' : ''}{milkVar.toFixed(1)}
+                                                    </Text>
+                                                </View>
+                                            </View>
+
+                                            {/* Fat Metric */}
+                                            <View style={styles.metricItem}>
+                                                <Text style={styles.metricLabel}>Fat (kg)</Text>
+                                                <View style={styles.metricValueRow}>
+                                                    <Text style={styles.collValue}>{collFatKg.toFixed(2)}</Text>
+                                                    <Text style={styles.arrowIcon}>→</Text>
+                                                    <Text style={[styles.varValue, { color: getVarColor(fatVarKg) }]}>
+                                                        {fatVarKg > 0 ? '+' : ''}{fatVarKg.toFixed(2)}
+                                                    </Text>
+                                                </View>
+                                                <Text style={styles.metricSub}>{collFat.toFixed(1)}%</Text>
+                                            </View>
+
+                                            {/* SNF Metric */}
+                                            <View style={styles.metricItem}>
+                                                <Text style={styles.metricLabel}>SNF (kg)</Text>
+                                                <View style={styles.metricValueRow}>
+                                                    <Text style={styles.collValue}>{collSnfKg.toFixed(2)}</Text>
+                                                    <Text style={styles.arrowIcon}>→</Text>
+                                                    <Text style={[styles.varValue, { color: getVarColor(snfVarKg) }]}>
+                                                        {snfVarKg > 0 ? '+' : ''}{snfVarKg.toFixed(2)}
+                                                    </Text>
+                                                </View>
+                                                <Text style={styles.metricSub}>{collSnf.toFixed(1)}%</Text>
+                                            </View>
+                                        </View>
+                                    </TouchableOpacity>
                                 );
                             })}
-                        </View>
-                    </ScrollView>
-                </Card>
+                        </Card>
 
-                {/* Calculation Card */}
-                <Text style={styles.sectionTitle}>Payment Calculation</Text>
-                <Card variant="elevated" style={styles.paymentCard}>
-                    <View style={styles.pricingGrid}>
-                        <View style={styles.priceInputItem}>
-                            <Text style={styles.priceInputLabel}>Base Rate (₹/L)</Text>
-                            <Input
-                                value={basePricePerLiter}
-                                onChangeText={setBasePricePerLiter}
-                                keyboardType="numeric"
-                                style={styles.compactInput}
-                            />
+                        {/* Settlement Calculator */}
+                        <View style={styles.sectionHeader}>
+                            <Text style={styles.sectionTitle}>Revenue Settlement</Text>
+                            <View style={[styles.sectionIcon, { backgroundColor: '#FEF3C7' }]}>
+                                <Text style={styles.siText}>💰</Text>
+                            </View>
                         </View>
-                        <View style={styles.priceInputItem}>
-                            <Text style={styles.priceInputLabel}>Fat Bonus (₹/%)</Text>
-                            <Input
-                                value={fatPricePerPercent}
-                                onChangeText={setFatPricePerPercent}
-                                keyboardType="numeric"
-                                style={styles.compactInput}
-                            />
-                        </View>
-                        <View style={styles.priceInputItem}>
-                            <Text style={styles.priceInputLabel}>SNF Bonus (₹/%)</Text>
-                            <Input
-                                value={snfPricePerPercent}
-                                onChangeText={setSnfPricePerPercent}
-                                keyboardType="numeric"
-                                style={styles.compactInput}
-                            />
-                        </View>
-                    </View>
 
-                    <View style={styles.calculationBox}>
-                        <View style={styles.calcRow}>
-                            <Text style={styles.calcLabel}>Milk Payment</Text>
-                            <Text style={styles.calcValue}>₹{(parseFloat(basePricePerLiter || '0') * dairyTotals.milk).toFixed(2)}</Text>
-                        </View>
-                        <View style={styles.calcRow}>
-                            <Text style={styles.calcLabel}>Fat Bonus</Text>
-                            <Text style={styles.calcValue}>₹{(parseFloat(fatPricePerPercent || '0') * dairyAvgFat).toFixed(2)}</Text>
-                        </View>
-                        <View style={styles.calcRow}>
-                            <Text style={styles.calcLabel}>SNF Bonus</Text>
-                            <Text style={styles.calcValue}>₹{(parseFloat(snfPricePerPercent || '0') * dairyAvgSnf).toFixed(2)}</Text>
-                        </View>
-                        <View style={styles.calcDivider} />
-                        <View style={styles.totalRow}>
-                            <Text style={styles.totalLabel}>Grand Total</Text>
-                            <Text style={styles.totalValue}>₹{totalPrice.toFixed(2)}</Text>
-                        </View>
-                    </View>
-                </Card>
+                        <Card style={styles.settlementCard}>
+                            <View style={styles.calculatorInputs}>
+                                <View style={styles.calcInputWrapper}>
+                                    <Text style={styles.calcInputLabel}>Milk Rate</Text>
+                                    <Input
+                                        value={basePricePerLiter}
+                                        onChangeText={setBasePricePerLiter}
+                                        keyboardType="numeric"
+                                        style={styles.premiumInput}
+                                        leftIcon={<Text style={styles.currencyIcon}>₹</Text>}
+                                        containerStyle={styles.inputContainerStyle}
+                                    />
+                                </View>
+                                <View style={styles.calcInputWrapper}>
+                                    <Text style={styles.calcInputLabel}>Fat Rate</Text>
+                                    <Input
+                                        value={fatPricePerPercent}
+                                        onChangeText={setFatPricePerPercent}
+                                        keyboardType="numeric"
+                                        style={styles.premiumInput}
+                                        leftIcon={<Text style={styles.currencyIcon}>₹</Text>}
+                                        containerStyle={styles.inputContainerStyle}
+                                    />
+                                </View>
+                                <View style={styles.calcInputWrapper}>
+                                    <Text style={styles.calcInputLabel}>SNF Rate</Text>
+                                    <Input
+                                        value={snfPricePerPercent}
+                                        onChangeText={setSnfPricePerPercent}
+                                        keyboardType="numeric"
+                                        style={styles.premiumInput}
+                                        leftIcon={<Text style={styles.currencyIcon}>₹</Text>}
+                                        containerStyle={styles.inputContainerStyle}
+                                    />
+                                </View>
+                            </View>
 
-                <TouchableOpacity style={styles.printButton} activeOpacity={0.8}>
-                    <Text style={styles.printButtonText}>Generate Payment Receipt</Text>
-                </TouchableOpacity>
-            </ScrollView>
+                            <View style={styles.receiptBody}>
+                                <View style={styles.receiptHeader}>
+                                    <Text style={styles.receiptSectionTitle}>TRIP VARIANCE SETTLEMENT</Text>
+                                </View>
+
+                                <View style={styles.receiptRow}>
+                                    <View style={styles.rtLabelCol}>
+                                        <Text style={styles.rtLabel}>Milk Qty Variance</Text>
+                                        <Text style={styles.rtLabelDetail}>{settlement.variances.milk.toFixed(2)}L @ ₹{basePricePerLiter}/L</Text>
+                                    </View>
+                                    <Text style={[styles.rtValue, { color: settlement.variances.milkImpact < 0 ? colors.error[600] : colors.success[600] }]}>
+                                        {settlement.variances.milkImpact > 0 ? '+' : ''}₹{settlement.variances.milkImpact.toFixed(2)}
+                                    </Text>
+                                </View>
+
+                                <View style={styles.receiptRow}>
+                                    <View style={styles.rtLabelCol}>
+                                        <Text style={styles.rtLabel}>Fat Solids Variance</Text>
+                                        <Text style={styles.rtLabelDetail}>{settlement.variances.fatKg.toFixed(2)}kg @ ₹{fatPricePerPercent}/kg</Text>
+                                    </View>
+                                    <Text style={[styles.rtValue, { color: settlement.variances.fatImpact < 0 ? colors.error[600] : colors.success[600] }]}>
+                                        {settlement.variances.fatImpact > 0 ? '+' : ''}₹{settlement.variances.fatImpact.toFixed(2)}
+                                    </Text>
+                                </View>
+
+                                <View style={styles.receiptRow}>
+                                    <View style={styles.rtLabelCol}>
+                                        <Text style={styles.rtLabel}>SNF Solids Variance</Text>
+                                        <Text style={styles.rtLabelDetail}>{settlement.variances.snfKg.toFixed(2)}kg @ ₹{snfPricePerPercent}/kg</Text>
+                                    </View>
+                                    <Text style={[styles.rtValue, { color: settlement.variances.snfImpact < 0 ? colors.error[600] : colors.success[600] }]}>
+                                        {settlement.variances.snfImpact > 0 ? '+' : ''}₹{settlement.variances.snfImpact.toFixed(2)}
+                                    </Text>
+                                </View>
+
+                                <View style={styles.receiptDivider} />
+                                <View style={styles.receiptTotalRow}>
+                                    <View>
+                                        <Text style={styles.totalLabel}>Total Variance Value</Text>
+                                        <Text style={styles.totalLabelSub}>Net Profit/Loss for Trip</Text>
+                                    </View>
+                                    <Text style={[styles.totalValue, { color: settlement.totalVariancePrice < 0 ? colors.error[600] : colors.success[600] }]}>
+                                        {settlement.totalVariancePrice > 0 ? '+' : ''}₹{settlement.totalVariancePrice.toFixed(2)}
+                                    </Text>
+                                </View>
+                            </View>
+                        </Card>
+
+                        <TouchableOpacity style={styles.settleBtn} activeOpacity={0.8}>
+                            <LinearGradient colors={['#059669', '#10B981']} style={styles.btnGradient}>
+                                <Text style={styles.btnText}>Authorize & Finalize Payment</Text>
+                            </LinearGradient>
+                        </TouchableOpacity>
+                    </Animated.View>
+                </ScrollView>
+            </KeyboardAvoidingView>
         </View>
     );
 };
@@ -297,9 +474,13 @@ const OwnerTripDetails: React.FC = () => {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#FFFFFF',
+        backgroundColor: colors.background.primary,
     },
-    gradient: {
+    customHeader: {
+        paddingTop: Platform.OS === 'android' ? 50 : 60,
+        paddingBottom: spacing.sm,
+    },
+    headerGradient: {
         position: 'absolute',
         left: 0,
         right: 0,
@@ -310,236 +491,387 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: 'white',
     },
     loadingText: {
         marginTop: spacing.md,
-        fontSize: typography.fontSize.base,
         color: colors.primary[600],
+        fontWeight: '500',
     },
     scrollContainer: {
         flex: 1,
     },
     content: {
         padding: spacing.lg,
-        paddingBottom: spacing.xxl,
+        paddingBottom: 40,
     },
-    headerRow: {
+    metaRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: spacing.lg,
+    },
+    statusChip: {
+        backgroundColor: colors.success[100],
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 4,
+    },
+    statusChipText: {
+        fontSize: 10,
+        fontWeight: 'bold',
+        color: colors.success[700],
+        letterSpacing: 0.5,
+    },
+    dateText: {
+        fontSize: 11,
+        color: colors.text.tertiary,
+        fontWeight: '500',
+    },
+    overviewGrid: {
+        flexDirection: 'row',
+        gap: spacing.md,
+        marginBottom: spacing.lg,
+    },
+    overviewCard: {
+        flex: 1,
+        backgroundColor: colors.background.primary,
+        borderRadius: borderRadius.lg,
+        padding: spacing.md,
+        ...shadows.sm,
+        borderWidth: 1,
+        borderColor: 'rgba(0,0,0,0.05)',
+    },
+    ovLabel: {
+        fontSize: 9,
+        fontWeight: 'bold',
+        color: colors.text.tertiary,
+        marginBottom: 2,
+    },
+    ovValue: {
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: colors.primary[900],
+    },
+    heroSummaryCard: {
+        borderRadius: borderRadius['3xl'],
+        padding: spacing.xl,
+        marginBottom: spacing.xl,
+        ...shadows.md,
+    },
+    heroTop: {
+        alignItems: 'center',
+        marginBottom: spacing.lg,
+    },
+    heroLabel: {
+        fontSize: 12,
+        color: 'rgba(255,255,255,0.7)',
+        fontWeight: 'bold',
+        textTransform: 'uppercase',
+    },
+    heroValue: {
+        fontSize: 36,
+        fontWeight: 'bold',
+        color: '#fff',
+    },
+    unit: {
+        fontSize: 16,
+        opacity: 0.8,
+    },
+    heroBottom: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
+        backgroundColor: 'rgba(255,255,255,0.1)',
+        borderRadius: borderRadius.xl,
+        padding: spacing.md,
+    },
+    heroStat: {
+        alignItems: 'center',
+    },
+    hsLabel: {
+        fontSize: 10,
+        color: 'rgba(255,255,255,0.7)',
+        fontWeight: '600',
+    },
+    hsValue: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#fff',
+    },
+    heroDivider: {
+        width: 1,
+        height: '80%',
+        backgroundColor: 'rgba(255,255,255,0.2)',
+        alignSelf: 'center',
+    },
+    varianceSummaryRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginTop: spacing.md,
+        paddingTop: spacing.sm,
+        borderTopWidth: 1,
+        borderTopColor: 'rgba(255,255,255,0.1)',
+    },
+    varianceSummaryItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    varianceSummaryLabel: {
+        fontSize: 10,
+        color: 'rgba(255,255,255,0.8)',
+        fontWeight: '600',
+        textTransform: 'uppercase',
+    },
+    varianceSummaryValue: {
+        fontSize: 12,
+        fontWeight: 'bold',
+    },
+    auditSubContainer: {
+        flexDirection: 'row',
+        gap: spacing.sm,
+        marginTop: 2,
+    },
+    auditVarianceRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        marginTop: 2,
+    },
+    auditVarText: {
+        fontSize: 11,
+        fontWeight: 'bold',
+    },
+    auditVarTextSmall: {
+        fontSize: 10,
+        fontWeight: '600',
+    },
+    sectionHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: spacing.md,
+    },
+    sectionTitle: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: colors.primary[900],
+    },
+    sectionIcon: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: colors.success[50],
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    siText: {
+        fontSize: 16,
+    },
+    auditCard: {
+        padding: 0,
+        overflow: 'hidden',
+        marginBottom: spacing.xl,
+    },
+    auditRow: {
+        padding: spacing.lg,
+        borderBottomWidth: 1,
+        borderBottomColor: 'rgba(0,0,0,0.03)',
+    },
+    auditHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
         marginBottom: spacing.md,
     },
-    statusBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
+    auditStatusBadge: {
         backgroundColor: colors.success[50],
         paddingHorizontal: spacing.sm,
         paddingVertical: 4,
-        borderRadius: borderRadius.full,
+        borderRadius: borderRadius.sm,
         borderWidth: 1,
         borderColor: colors.success[100],
     },
-    statusDot: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        marginRight: 6,
-    },
-    statusText: {
-        fontSize: 10,
-        fontWeight: typography.fontWeight.bold,
+    verifiedText: {
+        fontSize: 12,
+        fontWeight: 'bold',
         color: colors.success[700],
-        textTransform: 'uppercase',
     },
-    dateTimeText: {
-        fontSize: 12,
-        color: colors.text.tertiary,
-        fontWeight: typography.fontWeight.medium,
+    auditName: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: colors.primary[900],
     },
-    infoCard: {
-        padding: spacing.md,
-        borderRadius: borderRadius.xl,
-        backgroundColor: 'white',
-        ...shadows.sm,
-        marginBottom: spacing.xl,
-    },
-    infoGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-    },
-    infoItem: {
-        width: '50%',
-        marginVertical: spacing.xs,
-    },
-    infoLabel: {
+    auditActionHint: {
         fontSize: 10,
+        color: colors.primary[500],
+        marginTop: 2,
+        fontWeight: '500',
+    },
+    auditDetailGrid: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        gap: spacing.sm,
+    },
+    metricItem: {
+        flex: 1,
+        backgroundColor: colors.background.secondary,
+        padding: spacing.sm,
+        borderRadius: borderRadius.md,
+    },
+    metricLabel: {
+        fontSize: 10,
+        fontWeight: 'bold',
         color: colors.text.tertiary,
-        fontWeight: typography.fontWeight.bold,
-        marginBottom: 2,
-    },
-    infoValue: {
-        fontSize: typography.fontSize.sm,
-        color: colors.primary[900],
-        fontWeight: typography.fontWeight.bold,
-    },
-    sectionTitle: {
-        fontSize: typography.fontSize.base,
-        fontWeight: typography.fontWeight.bold,
-        color: colors.primary[900],
-        marginBottom: spacing.md,
-    },
-    summaryContainer: {
-        marginBottom: spacing.xl,
-    },
-    mainSummaryCard: {
-        padding: spacing.lg,
-        borderRadius: borderRadius.xl,
-        ...shadows.md,
-    },
-    summaryMainTop: {
-        alignItems: 'center',
-        marginBottom: spacing.md,
-    },
-    summaryMainLabel: {
-        fontSize: 14,
-        color: 'rgba(255,255,255,0.8)',
-        fontWeight: typography.fontWeight.medium,
-    },
-    summaryMainValue: {
-        fontSize: 36,
-        color: 'white',
-        fontWeight: typography.fontWeight.bold,
-    },
-    summaryDivider: {
-        height: 1,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        marginBottom: spacing.md,
-    },
-    summaryMainBottom: {
-        flexDirection: 'row',
-        justifyContent: 'space-around',
-    },
-    summarySubItem: {
-        alignItems: 'center',
-    },
-    summarySubLabel: {
-        fontSize: 12,
-        color: 'rgba(255,255,255,0.8)',
-        marginBottom: 2,
-    },
-    summarySubValue: {
-        fontSize: 18,
-        color: 'white',
-        fontWeight: typography.fontWeight.bold,
-    },
-    tableCard: {
-        padding: 0,
-        borderRadius: borderRadius.xl,
-        overflow: 'hidden',
-        marginBottom: spacing.xl,
-    },
-    tableHeader: {
-        flexDirection: 'row',
-        backgroundColor: colors.primary[50],
-        padding: spacing.md,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.primary[100],
-    },
-    tableHeaderText: {
-        fontSize: 11,
-        fontWeight: typography.fontWeight.bold,
-        color: colors.primary[800],
         textTransform: 'uppercase',
+        marginBottom: 4,
     },
-    tableRow: {
+    metricValueRow: {
         flexDirection: 'row',
-        padding: spacing.md,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.primary[50],
         alignItems: 'center',
+        gap: 4,
     },
-    tableCellText: {
-        fontSize: typography.fontSize.sm,
-        color: colors.primary[900],
-        textAlign: 'center',
+    collValue: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: colors.text.secondary,
     },
-    paymentCard: {
+    arrowIcon: {
+        fontSize: 10,
+        color: colors.text.disabled,
+    },
+    varValue: {
+        fontSize: 12,
+        fontWeight: 'bold',
+    },
+    metricSub: {
+        fontSize: 9,
+        color: colors.text.disabled,
+        marginTop: 2,
+    },
+    settlementCard: {
         padding: spacing.lg,
-        borderRadius: borderRadius.xl,
-        backgroundColor: 'white',
-        ...shadows.md,
         marginBottom: spacing.xl,
     },
-    pricingGrid: {
+    calculatorInputs: {
         flexDirection: 'row',
         gap: spacing.sm,
         marginBottom: spacing.lg,
     },
-    priceInputItem: {
+    calcInputWrapper: {
         flex: 1,
     },
-    priceInputLabel: {
+    calcInputLabel: {
         fontSize: 10,
-        color: colors.text.tertiary,
-        fontWeight: typography.fontWeight.bold,
-        marginBottom: 6,
+        fontWeight: 'bold',
+        color: colors.primary[700],
+        marginBottom: 8,
+        textTransform: 'uppercase',
+        letterSpacing: 0.8,
+        textAlign: 'center',
     },
-    compactInput: {
-        height: 44,
-        fontSize: 14,
+    inputContainerStyle: {
+        marginBottom: 0,
     },
-    calculationBox: {
-        backgroundColor: colors.primary[50],
-        padding: spacing.md,
+    premiumInput: {
+        height: 52,
+        fontSize: 18,
+        fontWeight: 'bold',
+        backgroundColor: '#fff',
         borderRadius: borderRadius.lg,
+        paddingLeft: 48,
+        paddingVertical: 0,
+        color: colors.primary[900],
+        textAlign: 'center',
     },
-    calcRow: {
+    currencyIcon: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: colors.primary[600],
+        marginLeft: 4,
+    },
+    receiptBody: {
+        backgroundColor: colors.background.secondary,
+        borderRadius: borderRadius.lg,
+        padding: spacing.md,
+    },
+    receiptRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         marginBottom: spacing.xs,
     },
-    calcLabel: {
-        fontSize: 13,
-        color: colors.primary[700],
-        fontWeight: typography.fontWeight.medium,
+    rtLabel: {
+        fontSize: 12,
+        color: colors.text.secondary,
     },
-    calcValue: {
-        fontSize: 13,
+    rtValue: {
+        fontSize: 12,
+        fontWeight: 'bold',
         color: colors.primary[900],
-        fontWeight: typography.fontWeight.bold,
     },
-    calcDivider: {
+    receiptHeader: {
+        marginBottom: spacing.sm,
+        borderBottomWidth: 1,
+        borderBottomColor: 'rgba(0,0,0,0.05)',
+        paddingBottom: 4,
+    },
+    receiptSectionTitle: {
+        fontSize: 9,
+        fontWeight: 'bold',
+        color: colors.text.tertiary,
+        letterSpacing: 0.5,
+    },
+    rtLabelCol: {
+        flex: 1,
+    },
+    rtLabelDetail: {
+        fontSize: 10,
+        color: colors.text.tertiary,
+        marginTop: 2,
+    },
+    rtValueTertiary: {
+        fontSize: 11,
+        color: colors.text.disabled,
+        fontStyle: 'italic',
+    },
+    totalLabelSub: {
+        fontSize: 10,
+        color: colors.text.tertiary,
+        marginTop: 2,
+    },
+    receiptDivider: {
         height: 1,
-        backgroundColor: colors.primary[100],
+        backgroundColor: 'rgba(0,0,0,0.05)',
         marginVertical: spacing.sm,
     },
-    totalRow: {
+    receiptTotalRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
     },
     totalLabel: {
-        fontSize: 16,
-        fontWeight: typography.fontWeight.bold,
+        fontSize: 14,
+        fontWeight: 'bold',
         color: colors.primary[900],
     },
     totalValue: {
-        fontSize: 24,
-        fontWeight: typography.fontWeight.bold,
+        fontSize: 20,
+        fontWeight: 'bold',
         color: colors.success[600],
     },
-    printButton: {
-        backgroundColor: colors.primary[600],
-        padding: spacing.lg,
+    settleBtn: {
         borderRadius: borderRadius.xl,
-        alignItems: 'center',
+        overflow: 'hidden',
         ...shadows.md,
     },
-    printButtonText: {
-        color: 'white',
-        fontSize: typography.fontSize.base,
-        fontWeight: typography.fontWeight.bold,
+    btnGradient: {
+        padding: spacing.lg,
+        alignItems: 'center',
+    },
+    btnText: {
+        color: '#fff',
+        fontSize: 16,
+        fontWeight: 'bold',
     },
 });
 

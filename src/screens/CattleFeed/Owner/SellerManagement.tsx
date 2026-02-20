@@ -1,21 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, RefreshControl, ActivityIndicator } from 'react-native';
 import { getCattleFeedSellers, addCattleFeedSeller, updateCattleFeedSeller, deleteCattleFeedSeller } from '../../../utils/storage';
 import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
 import Input from '../../../components/common/Input';
 import Modal from '../../../components/common/Modal';
+import ScreenHeader from '../../../components/common/ScreenHeader';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useOwner } from '../../../contexts/OwnerContext';
 import OwnerSelector from '../../../components/SuperAdmin/OwnerSelector';
+import { colors } from '../../../theme/colors';
+import { spacing, borderRadius, shadows } from '../../../theme/spacing';
+import { typography } from '../../../theme/typography';
 
 const SellerManagement: React.FC = () => {
   const { isSuperAdmin } = useAuth();
   const { selectedOwnerId } = useOwner();
-  const { success, error: showError } = useToast();
+  const toast = useToast();
   const [sellers, setSellers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingSeller, setEditingSeller] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -40,10 +45,16 @@ const SellerManagement: React.FC = () => {
       const data = await getCattleFeedSellers(ownerId);
       setSellers(Array.isArray(data) ? data : []);
     } catch (err: any) {
-      showError(err.message || 'Failed to load sellers');
+      toast.error(err.message || 'Failed to load sellers');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadData();
   };
 
   const handleInputChange = (name: string, value: string) => {
@@ -55,7 +66,7 @@ const SellerManagement: React.FC = () => {
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
-    
+
     if (!formData.name.trim()) {
       newErrors.name = 'Name is required';
     }
@@ -90,7 +101,7 @@ const SellerManagement: React.FC = () => {
     if (!validateForm()) {
       return;
     }
-    
+
     try {
       setSubmitting(true);
       const sellerData: any = {
@@ -99,23 +110,23 @@ const SellerManagement: React.FC = () => {
         phoneNumber: formData.phoneNumber.trim(),
         email: formData.email.trim() || null,
       };
-      
+
       if (formData.password) {
         sellerData.password = formData.password;
       }
-      
+
       if (editingSeller) {
         await updateCattleFeedSeller(editingSeller._id || editingSeller.id, sellerData);
-        success('Seller updated successfully');
+        toast.success('Seller updated');
       } else {
         await addCattleFeedSeller(sellerData);
-        success('Seller added successfully');
+        toast.success('Seller added');
       }
-      
+
       resetForm();
       await loadData();
     } catch (err: any) {
-      showError(err.message || 'Failed to save seller');
+      toast.error(err.message || 'Failed to save seller');
     } finally {
       setSubmitting(false);
     }
@@ -136,7 +147,7 @@ const SellerManagement: React.FC = () => {
   const handleDelete = async (id: string) => {
     Alert.alert(
       'Delete Seller',
-      'Are you sure you want to delete this seller? This action cannot be undone.',
+      'Are you sure you want to delete this seller?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -145,10 +156,10 @@ const SellerManagement: React.FC = () => {
           onPress: async () => {
             try {
               await deleteCattleFeedSeller(id);
-              success('Seller deleted successfully');
+              toast.success('Seller deleted');
               await loadData();
             } catch (err: any) {
-              showError(err.message || 'Failed to delete seller');
+              toast.error(err.message || 'Failed to delete');
             }
           },
         },
@@ -173,207 +184,281 @@ const SellerManagement: React.FC = () => {
     );
   });
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading sellers...</Text>
-      </View>
-    );
-  }
-
   return (
-    <ScrollView style={styles.container}>
-      {isSuperAdmin && <OwnerSelector systemType="cattleFeed" />}
-      
-      <View style={styles.header}>
-        <Text style={styles.title}>Seller Management</Text>
-        <Button
-          variant="primary"
-          onPress={() => {
-            resetForm();
-            setShowForm(true);
-          }}
-        >
-          Add New Seller
-        </Button>
-      </View>
+    <View style={styles.container}>
+      <ScreenHeader
+        title="Sellers"
+        subtitle="Manage your sales team"
+        showBackButton
+        rightAction={
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={() => {
+              resetForm();
+              setShowForm(true);
+            }}
+          >
+            <Text style={styles.addButtonIcon}>➕</Text>
+          </TouchableOpacity>
+        }
+      />
 
-      <Card>
-        <Input
-          label="Search Sellers"
-          value={searchTerm}
-          onChangeText={setSearchTerm}
-          placeholder="Search by name, username, phone, or email..."
-        />
-      </Card>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary[500]]} />
+        }
+      >
+        <View style={styles.content}>
+          {isSuperAdmin && <OwnerSelector systemType="cattleFeed" />}
 
-      <Card title={`Sellers (${filteredSellers.length})`}>
-        {filteredSellers.length === 0 ? (
-          <Text style={styles.emptyText}>No sellers found</Text>
-        ) : (
-          <View style={styles.list}>
-            {filteredSellers.map((seller) => (
-              <View key={seller._id || seller.id} style={styles.listItem}>
-                <View style={styles.listItemContent}>
-                  <Text style={styles.listItemName}>{seller.name}</Text>
-                  <Text style={styles.listItemDetail}>👤 {seller.username}</Text>
-                  <Text style={styles.listItemDetail}>📞 {seller.phoneNumber || seller.phone}</Text>
-                  {seller.email && <Text style={styles.listItemDetail}>📧 {seller.email}</Text>}
-                </View>
-                <View style={styles.listItemActions}>
-                  <Button
-                    variant="secondary"
-                    onPress={() => handleEdit(seller)}
-                    style={styles.actionButton}
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    variant="danger"
-                    onPress={() => handleDelete(seller._id || seller.id)}
-                    style={styles.actionButton}
-                  >
-                    Delete
-                  </Button>
-                </View>
-              </View>
-            ))}
+          <View style={styles.searchSection}>
+            <Input
+              value={searchTerm}
+              onChangeText={setSearchTerm}
+              placeholder="Search by name, username..."
+              style={styles.searchInput}
+            />
           </View>
-        )}
-      </Card>
+
+          {loading && !refreshing ? (
+            <ActivityIndicator size="large" color={colors.primary[500]} style={styles.loader} />
+          ) : (
+            <View style={styles.sellerList}>
+              {filteredSellers.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyEmoji}>👥</Text>
+                  <Text style={styles.emptyText}>No sellers found.</Text>
+                </View>
+              ) : (
+                filteredSellers.map((seller) => (
+                  <Card key={seller._id || seller.id} style={styles.sellerCard}>
+                    <View style={styles.sellerRow}>
+                      <View style={styles.avatar}>
+                        <Text style={styles.avatarText}>
+                          {seller.name?.charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                      <View style={styles.sellerInfo}>
+                        <Text style={styles.sellerName}>{seller.name}</Text>
+                        <Text style={styles.sellerUsername}>@{seller.username}</Text>
+                        <View style={styles.contactRow}>
+                          <Text style={styles.contactItem}>📞 {seller.phoneNumber || seller.phone}</Text>
+                          {seller.email && <Text style={styles.contactItem}>📧 {seller.email}</Text>}
+                        </View>
+                      </View>
+                    </View>
+
+                    <View style={styles.divider} />
+
+                    <View style={styles.cardActions}>
+                      <TouchableOpacity
+                        style={[styles.actionBtn, { backgroundColor: colors.primary[50] }]}
+                        onPress={() => handleEdit(seller)}
+                      >
+                        <Text style={[styles.actionBtnText, { color: colors.primary[700] }]}>Edit</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.actionBtn, { backgroundColor: colors.error[50] }]}
+                        onPress={() => handleDelete(seller._id || seller.id)}
+                      >
+                        <Text style={[styles.actionBtnText, { color: colors.error[700] }]}>Delete</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </Card>
+                ))
+              )}
+            </View>
+          )}
+        </View>
+      </ScrollView>
 
       <Modal
         visible={showForm}
         onClose={resetForm}
-        title={editingSeller ? 'Edit Seller' : 'Add New Seller'}
+        title={editingSeller ? 'Edit Seller Details' : 'Add New Seller'}
       >
-        <ScrollView style={styles.modalContent}>
-          <View style={styles.form}>
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <View style={styles.modalBody}>
             <Input
-              label="Name"
+              label="Full Name *"
               value={formData.name}
-              onChangeText={(value) => handleInputChange('name', value)}
+              onChangeText={(v) => handleInputChange('name', v)}
               error={errors.name}
-              required
+              placeholder="Enter name"
             />
             <Input
-              label="Username"
+              label="Username *"
               value={formData.username}
-              onChangeText={(value) => handleInputChange('username', value)}
+              onChangeText={(v) => handleInputChange('username', v)}
               error={errors.username}
-              required
+              placeholder="Choose a username"
+              autoCapitalize="none"
             />
             <Input
-              label="Phone Number"
+              label="Phone Number *"
               value={formData.phoneNumber}
-              onChangeText={(value) => handleInputChange('phoneNumber', value)}
+              onChangeText={(v) => handleInputChange('phoneNumber', v)}
               error={errors.phoneNumber}
-              required
               keyboardType="phone-pad"
+              placeholder="Enter mobile number"
             />
             <Input
-              label={editingSeller ? 'New Password (leave blank to keep current)' : 'Password'}
+              label={editingSeller ? 'Set New Password (optional)' : 'Password *'}
               value={formData.password}
-              onChangeText={(value) => handleInputChange('password', value)}
+              onChangeText={(v) => handleInputChange('password', v)}
               error={errors.password}
-              required={!editingSeller}
               secureTextEntry
+              placeholder="Min 4 characters"
             />
             <Input
-              label="Email (Optional)"
+              label="Email Address"
               value={formData.email}
-              onChangeText={(value) => handleInputChange('email', value)}
+              onChangeText={(v) => handleInputChange('email', v)}
               error={errors.email}
               keyboardType="email-address"
+              placeholder="example@mail.com"
+              autoCapitalize="none"
             />
-            <View style={styles.formButtons}>
-              <Button variant="secondary" onPress={resetForm} disabled={submitting}>
-                Cancel
-              </Button>
-              <Button variant="primary" onPress={handleSubmit} disabled={submitting}>
-                {submitting ? 'Saving...' : editingSeller ? 'Update' : 'Add'}
-              </Button>
+
+            <View style={styles.modalActions}>
+              <Button
+                variant="outline"
+                style={{ flex: 1 }}
+                onPress={resetForm}
+              >Cancel</Button>
+              <Button
+                style={{ flex: 1 }}
+                onPress={handleSubmit}
+                loading={submitting}
+              >{editingSeller ? 'Update' : 'Create'}</Button>
             </View>
           </View>
+          <View style={{ height: 20 }} />
         </ScrollView>
       </Modal>
-    </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#f8fafc',
   },
-  loadingContainer: {
-    flex: 1,
+  content: {
+    padding: spacing.lg,
+  },
+  addButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primary[50],
     justifyContent: 'center',
     alignItems: 'center',
   },
-  loadingText: {
-    fontSize: 18,
-    color: '#6b7280',
+  addButtonIcon: {
+    fontSize: 20,
+    color: colors.primary[600],
   },
-  header: {
+  loader: {
+    marginVertical: spacing.xxl,
+  },
+  searchSection: {
+    marginBottom: spacing.lg,
+  },
+  searchInput: {
+    backgroundColor: 'white',
+  },
+  sellerList: {
+    marginBottom: spacing.xxl,
+  },
+  sellerCard: {
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  sellerRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1f2937',
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.primary[50],
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.md,
   },
-  emptyText: {
-    textAlign: 'center',
-    padding: 20,
-    color: '#6b7280',
+  avatarText: {
+    fontSize: 20,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[600],
   },
-  list: {
-    gap: 12,
-  },
-  listItem: {
-    backgroundColor: '#ffffff',
-    padding: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    marginBottom: 8,
-  },
-  listItemContent: {
-    marginBottom: 12,
-  },
-  listItemName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1f2937',
-    marginBottom: 4,
-  },
-  listItemDetail: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 2,
-  },
-  listItemActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  actionButton: {
+  sellerInfo: {
     flex: 1,
   },
-  modalContent: {
-    maxHeight: 500,
+  sellerName: {
+    fontSize: 16,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
   },
-  form: {
-    gap: 16,
+  sellerUsername: {
+    fontSize: 13,
+    color: colors.primary[600],
+    fontWeight: typography.fontWeight.semibold,
+    marginTop: 1,
   },
-  formButtons: {
+  contactRow: {
+    marginTop: 4,
+    gap: 2,
+  },
+  contactItem: {
+    fontSize: 12,
+    color: colors.text.tertiary,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#f1f5f9',
+    marginVertical: spacing.md,
+  },
+  cardActions: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
+    gap: spacing.md,
+  },
+  actionBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+  },
+  actionBtnText: {
+    fontSize: 13,
+    fontWeight: typography.fontWeight.bold,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: spacing.xxl,
+    backgroundColor: 'white',
+    borderRadius: borderRadius.xl,
+    marginTop: spacing.md,
+  },
+  emptyEmoji: {
+    fontSize: 40,
+    marginBottom: spacing.md,
+    opacity: 0.2,
+  },
+  emptyText: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.tertiary,
+  },
+  modalBody: {
+    paddingVertical: spacing.sm,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginTop: spacing.lg,
   },
 });
 

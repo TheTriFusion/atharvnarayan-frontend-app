@@ -1,16 +1,20 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, Animated, Platform, StatusBar, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import LinearGradient from 'react-native-linear-gradient';
 import { getMilkTruckTrips, getMilkTruckBMCs, getMilkTruckVehicles, getMilkTruckDrivers, getMilkTruckRoutes, getMilkTruckPricing } from '../../../utils/storage';
 import Card from '../../../components/common/Card';
 import Input from '../../../components/common/Input';
 import Button from '../../../components/common/Button';
 import Select from '../../../components/common/Select';
-import Modal from '../../../components/common/Modal';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useOwner } from '../../../contexts/OwnerContext';
 import OwnerSelector from '../../../components/SuperAdmin/OwnerSelector';
 import { useToast } from '../../../contexts/ToastContext';
+import { colors } from '../../../theme/colors';
+import { spacing, borderRadius, shadows } from '../../../theme/spacing';
+import { typography } from '../../../theme/typography';
+import ScreenHeader from '../../../components/common/ScreenHeader';
 
 const Reports: React.FC = () => {
   const { isSuperAdmin } = useAuth();
@@ -25,13 +29,13 @@ const Reports: React.FC = () => {
     vehicleId: '',
     driverId: '',
   });
-  const [selectedTrip, setSelectedTrip] = useState<any>(null);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [drivers, setDrivers] = useState<any[]>([]);
-  const [routes, setRoutes] = useState<any[]>([]);
-  const [bmcs, setBMCs] = useState<any[]>([]);
   const [pricing, setPricing] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+
+  // Animations
+  const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     loadAllData();
@@ -45,25 +49,23 @@ const Reports: React.FC = () => {
     try {
       setLoading(true);
       const ownerId = isSuperAdmin ? selectedOwnerId : null;
-      const [tripsData, vehiclesData, driversData, routesData, bmcsData, pricingData] = await Promise.all([
+      const [tripsData, vehiclesData, driversData, pricingData] = await Promise.all([
         getMilkTruckTrips(ownerId),
         getMilkTruckVehicles(ownerId),
         getMilkTruckDrivers(ownerId),
-        getMilkTruckRoutes(ownerId),
-        getMilkTruckBMCs(ownerId),
         getMilkTruckPricing(),
       ]);
 
       const tripsArray = Array.isArray(tripsData) ? tripsData : [];
       const completedTrips = tripsArray.filter(t => t.status === 'completed');
-      
+
       setTrips(completedTrips);
       setFilteredTrips(completedTrips);
       setVehicles(Array.isArray(vehiclesData) ? vehiclesData : []);
       setDrivers(Array.isArray(driversData) ? driversData : []);
-      setRoutes(Array.isArray(routesData) ? routesData : []);
-      setBMCs(Array.isArray(bmcsData) ? bmcsData : []);
       setPricing(pricingData || { basePricePerLiter: 50, fatPricePerPercent: 2, snfPricePerPercent: 1 });
+
+      Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }).start();
     } catch (error: any) {
       console.error('Error loading reports data:', error);
       showError(error.message || 'Failed to load reports');
@@ -77,13 +79,13 @@ const Reports: React.FC = () => {
     let filtered = [...trips];
 
     if (filters.startDate) {
-      filtered = filtered.filter(t => 
+      filtered = filtered.filter(t =>
         new Date(t.startTime) >= new Date(filters.startDate)
       );
     }
 
     if (filters.endDate) {
-      filtered = filtered.filter(t => 
+      filtered = filtered.filter(t =>
         new Date(t.startTime) <= new Date(filters.endDate)
       );
     }
@@ -114,166 +116,148 @@ const Reports: React.FC = () => {
     return baseAmount + fatAmount + snfAmount;
   };
 
+  const totalRevenue = filteredTrips.reduce((acc, t) => acc + calculateTripPayment(t), 0);
+  const totalMilk = filteredTrips.reduce((acc, t) => acc + (t.dairyConfirmation?.totalMilkQuantity || 0), 0);
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading reports data...</Text>
+        <ActivityIndicator color="#0F172A" size="large" />
+        <Text style={styles.loadingText}>Compiling reports...</Text>
       </View>
     );
   }
 
-  const vehicleOptions = [
-    { value: '', label: 'All Vehicles' },
-    ...vehicles.map(v => ({ value: v._id || v.id, label: v.registrationNumber })),
-  ];
-
-  const driverOptions = [
-    { value: '', label: 'All Drivers' },
-    ...drivers.map(d => ({ value: d._id || d.id, label: d.name })),
-  ];
-
   return (
-    <ScrollView style={styles.container}>
-      {isSuperAdmin && <OwnerSelector systemType="milkTruck" />}
-      
-      <Text style={styles.title}>Reports</Text>
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+      <LinearGradient
+        colors={['#F1F5F9', '#FFFFFF']}
+        style={styles.backgroundGradient}
+      />
 
-      <Card title="Filters">
-        <View style={styles.filters}>
-          <Input
-            label="Start Date"
-            value={filters.startDate}
-            onChangeText={(value) => handleFilterChange('startDate', value)}
-            placeholder="YYYY-MM-DD"
-          />
-          <Input
-            label="End Date"
-            value={filters.endDate}
-            onChangeText={(value) => handleFilterChange('endDate', value)}
-            placeholder="YYYY-MM-DD"
-          />
-          <Select
-            label="Vehicle"
-            value={filters.vehicleId}
-            onChange={(value) => handleFilterChange('vehicleId', value as string)}
-            options={vehicleOptions}
-          />
-          <Select
-            label="Driver"
-            value={filters.driverId}
-            onChange={(value) => handleFilterChange('driverId', value as string)}
-            options={driverOptions}
-          />
-        </View>
-      </Card>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {isSuperAdmin && <OwnerSelector systemType="milkTruck" />}
 
-      <Card title={`Completed Trips (${filteredTrips.length})`}>
-        {filteredTrips.length === 0 ? (
-          <Text style={styles.emptyText}>No completed trips found</Text>
-        ) : (
-          <View style={styles.tripsList}>
-            {filteredTrips.map((trip) => {
-              const vehicle = Array.isArray(vehicles) ? vehicles.find(v => (v._id || v.id) === (trip.vehicleId?._id || trip.vehicleId?.id || trip.vehicleId)) : null;
-              const driver = Array.isArray(drivers) ? drivers.find(d => (d._id || d.id) === (trip.driverId?._id || trip.driverId?.id || trip.driverId)) : null;
-              const payment = calculateTripPayment(trip);
-              
-              return (
-                <View key={trip._id || trip.id} style={styles.tripItem}>
-                  <View style={styles.tripItemContent}>
-                    <Text style={styles.tripId}>Trip ID: {trip._id || trip.id}</Text>
-                    <Text style={styles.tripDetail}>🚚 {vehicle?.registrationNumber || 'N/A'}</Text>
-                    <Text style={styles.tripDetail}>👤 {driver?.name || 'N/A'}</Text>
-                    <Text style={styles.tripDetail}>
-                      📅 {new Date(trip.endTime || trip.startTime).toLocaleDateString()}
-                    </Text>
-                    <Text style={styles.tripDetail}>
-                      🥛 {trip.dairyConfirmation?.totalMilkQuantity?.toFixed(2) || 'N/A'} L
-                    </Text>
-                    <Text style={styles.tripPayment}>💰 ₹{payment.toFixed(2)}</Text>
-                  </View>
-                  <Button
-                    variant="secondary"
-                    onPress={() => {
-                      navigation.navigate('MilkTruckDriverTripDetails', { tripId: trip._id || trip.id });
-                    }}
-                    style={styles.viewButton}
-                  >
-                    View Details
-                  </Button>
-                </View>
-              );
-            })}
-          </View>
-        )}
-      </Card>
+        <View style={styles.headerSpacer} />
+        <ScreenHeader
+          title="Analysis & Reports"
+          subtitle="Revenue & Performance Audit"
+          transparent
+        />
 
-      <Modal
-        visible={!!selectedTrip}
-        onClose={() => setSelectedTrip(null)}
-        title="Trip Details"
-      >
-        {selectedTrip && (
-          <ScrollView style={styles.modalContent}>
-            <View style={styles.tripDetails}>
-              <Text style={styles.detailLabel}>Trip ID</Text>
-              <Text style={styles.detailValue}>{selectedTrip._id || selectedTrip.id}</Text>
-              
-              <Text style={styles.detailLabel}>Vehicle</Text>
-              <Text style={styles.detailValue}>
-                {(Array.isArray(vehicles) ? vehicles.find(v => (v._id || v.id) === (selectedTrip.vehicleId?._id || selectedTrip.vehicleId?.id || selectedTrip.vehicleId)) : null)?.registrationNumber || 'N/A'}
-              </Text>
-              
-              <Text style={styles.detailLabel}>Driver</Text>
-              <Text style={styles.detailValue}>
-                {(Array.isArray(drivers) ? drivers.find(d => (d._id || d.id) === (selectedTrip.driverId?._id || selectedTrip.driverId?.id || selectedTrip.driverId)) : null)?.name || 'N/A'}
-              </Text>
-              
-              <Text style={styles.detailLabel}>Start Time</Text>
-              <Text style={styles.detailValue}>
-                {new Date(selectedTrip.startTime).toLocaleString()}
-              </Text>
-              
-              <Text style={styles.detailLabel}>End Time</Text>
-              <Text style={styles.detailValue}>
-                {selectedTrip.endTime ? new Date(selectedTrip.endTime).toLocaleString() : 'N/A'}
-              </Text>
-
-              {selectedTrip.dairyConfirmation && (
-                <>
-                  <Text style={styles.detailLabel}>Total Milk Quantity</Text>
-                  <Text style={styles.detailValue}>
-                    {selectedTrip.dairyConfirmation.totalMilkQuantity.toFixed(2)} L
-                  </Text>
-                  
-                  <Text style={styles.detailLabel}>Fat Content</Text>
-                  <Text style={styles.detailValue}>
-                    {selectedTrip.dairyConfirmation.fatContent.toFixed(2)}%
-                  </Text>
-                  
-                  <Text style={styles.detailLabel}>SNF Content</Text>
-                  <Text style={styles.detailValue}>
-                    {selectedTrip.dairyConfirmation.snfContent.toFixed(2)}%
-                  </Text>
-                  
-                  <Text style={styles.detailLabel}>Payment</Text>
-                  <Text style={[styles.detailValue, styles.paymentValue]}>
-                    ₹{calculateTripPayment(selectedTrip).toFixed(2)}
-                  </Text>
-                </>
-              )}
+        <Animated.View style={{ opacity: fadeAnim }}>
+          {/* Summary Hero */}
+          <View style={styles.summaryHero}>
+            <View style={styles.heroItem}>
+              <Text style={styles.heroLabel}>AUDITED MILK</Text>
+              <View style={styles.heroRow}>
+                <Text style={styles.heroVal}>{totalMilk.toLocaleString()}</Text>
+                <Text style={styles.heroUnit}>Ltrs</Text>
+              </View>
             </View>
-          </ScrollView>
-        )}
-      </Modal>
-    </ScrollView>
+            <View style={styles.heroDivider} />
+            <View style={styles.heroItem}>
+              <Text style={styles.heroLabel}>TOTAL SETTLEMENT</Text>
+              <View style={styles.heroRow}>
+                <Text style={[styles.heroVal, { color: colors.success[600] }]}>₹{totalRevenue.toLocaleString()}</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Collapsible Filters? Let's just do a clean card */}
+          <Card style={styles.filterCard}>
+            <View style={styles.filterHeader}>
+              <Text style={styles.filterTitle}>Dynamic Filters</Text>
+              <TouchableOpacity onPress={() => setFilters({ startDate: '', endDate: '', vehicleId: '', driverId: '' })}>
+                <Text style={styles.resetBtn}>Reset All</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.filterGrid}>
+              <View style={styles.filterGroup}>
+                <Input label="From Date" value={filters.startDate} onChangeText={(v) => handleFilterChange('startDate', v)} placeholder="YYYY-MM-DD" style={styles.compactInput} />
+              </View>
+              <View style={styles.filterGroup}>
+                <Input label="To Date" value={filters.endDate} onChangeText={(v) => handleFilterChange('endDate', v)} placeholder="YYYY-MM-DD" style={styles.compactInput} />
+              </View>
+            </View>
+            <View style={styles.filterGrid}>
+              <View style={styles.filterGroup}>
+                <Select label="Vehicle" value={filters.vehicleId} onChange={(v) => handleFilterChange('vehicleId', v as string)} options={[{ value: '', label: 'All Fleet' }, ...vehicles.map(v => ({ value: v._id || v.id, label: v.registrationNumber }))]} />
+              </View>
+              <View style={styles.filterGroup}>
+                <Select label="Driver" value={filters.driverId} onChange={(v) => handleFilterChange('driverId', v as string)} options={[{ value: '', label: 'All Staff' }, ...drivers.map(d => ({ value: d._id || d.id, label: d.name }))]} />
+              </View>
+            </View>
+          </Card>
+
+          {/* List */}
+          <View style={styles.listHeader}>
+            <Text style={styles.listTitle}>Mission Log ({filteredTrips.length})</Text>
+          </View>
+
+          {filteredTrips.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyEmoji}>📉</Text>
+              <Text style={styles.emptyText}>No matching logs found</Text>
+            </View>
+          ) : (
+            <View style={styles.tripList}>
+              {filteredTrips.map((trip) => {
+                const vehicle = vehicles.find(v => (v._id || v.id) === (trip.vehicleId?._id || trip.vehicleId?.id || trip.vehicleId));
+                const driver = drivers.find(d => (d._id || d.id) === (trip.driverId?._id || trip.driverId?.id || trip.driverId));
+                const payment = calculateTripPayment(trip);
+                const tripDate = new Date(trip.endTime || trip.startTime);
+
+                return (
+                  <TouchableOpacity
+                    key={trip._id || trip.id}
+                    style={styles.reportItem}
+                    activeOpacity={0.8}
+                    onPress={() => navigation.navigate('MilkTruckOwnerTripDetails', { tripId: trip._id || trip.id })}
+                  >
+                    <View style={styles.reportLeft}>
+                      <View style={styles.miniBadge}>
+                        <Text style={styles.miniBadgeText}>{tripDate.getDate()}</Text>
+                      </View>
+                      <View>
+                        <Text style={styles.reportDate}>{tripDate.toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</Text>
+                        <Text style={styles.reportSub}>{vehicle?.registrationNumber || 'N/A'} • {driver?.name || 'N/A'}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.reportRight}>
+                      <Text style={styles.reportMilk}>{trip.dairyConfirmation?.totalMilkQuantity?.toFixed(1) || '0'} L</Text>
+                      <Text style={styles.reportRevenue}>₹{payment.toFixed(0)}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+        </Animated.View>
+      </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: colors.background.primary,
+  },
+  backgroundGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: 400,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    padding: spacing.lg,
+  },
+  headerSpacer: {
+    height: Platform.OS === 'ios' ? 40 : 20,
   },
   loadingContainer: {
     flex: 1,
@@ -281,77 +265,153 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    fontSize: 18,
-    color: '#6b7280',
+    marginTop: spacing.sm,
+    color: '#0F172A',
+    fontWeight: '500',
   },
-  title: {
-    fontSize: 24,
+  summaryHero: {
+    flexDirection: 'row',
+    backgroundColor: '#0F172A',
+    borderRadius: borderRadius.xl,
+    padding: spacing.xl,
+    marginBottom: spacing.xl,
+    ...shadows.lg,
+  },
+  heroItem: {
+    flex: 1,
+  },
+  heroLabel: {
+    fontSize: 9,
     fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: 16,
-  },
-  filters: {
-    gap: 12,
-  },
-  emptyText: {
-    textAlign: 'center',
-    padding: 20,
-    color: '#6b7280',
-  },
-  tripsList: {
-    gap: 12,
-  },
-  tripItem: {
-    backgroundColor: '#ffffff',
-    padding: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    marginBottom: 8,
-  },
-  tripItemContent: {
-    marginBottom: 12,
-  },
-  tripId: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1f2937',
+    color: 'rgba(255,255,255,0.5)',
+    letterSpacing: 1,
     marginBottom: 4,
   },
-  tripDetail: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 2,
+  heroRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
   },
-  tripPayment: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#059669',
-    marginTop: 4,
-  },
-  viewButton: {
-    marginTop: 8,
-  },
-  modalContent: {
-    maxHeight: 500,
-  },
-  tripDetails: {
-    gap: 12,
-  },
-  detailLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#6b7280',
-  },
-  detailValue: {
-    fontSize: 16,
-    color: '#1f2937',
-    marginBottom: 8,
-  },
-  paymentValue: {
-    fontSize: 20,
+  heroVal: {
+    fontSize: 22,
     fontWeight: 'bold',
-    color: '#059669',
+    color: '#fff',
+  },
+  heroUnit: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.6)',
+  },
+  heroDivider: {
+    width: 1,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    marginHorizontal: spacing.lg,
+  },
+  filterCard: {
+    marginBottom: spacing.xl,
+    padding: spacing.lg,
+  },
+  filterHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  filterTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: colors.primary[900],
+  },
+  resetBtn: {
+    fontSize: 12,
+    color: colors.primary[500],
+    fontWeight: '600',
+  },
+  filterGrid: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  filterGroup: {
+    flex: 1,
+  },
+  compactInput: {
+    height: 44,
+  },
+  listHeader: {
+    marginBottom: spacing.md,
+  },
+  listTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.primary[900],
+  },
+  tripList: {
+    gap: spacing.sm,
+  },
+  reportItem: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    padding: spacing.lg,
+    borderRadius: borderRadius.lg,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    ...shadows.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.03)',
+  },
+  reportLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    flex: 1,
+  },
+  miniBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: colors.primary[50],
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  miniBadgeText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: colors.primary[600],
+  },
+  reportDate: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: colors.primary[900],
+  },
+  reportSub: {
+    fontSize: 11,
+    color: colors.text.tertiary,
+  },
+  reportRight: {
+    alignItems: 'flex-end',
+  },
+  reportMilk: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: colors.primary[900],
+  },
+  reportRevenue: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: colors.success[600],
+  },
+  emptyState: {
+    padding: 60,
+    alignItems: 'center',
+  },
+  emptyEmoji: {
+    fontSize: 40,
+    opacity: 0.2,
+    marginBottom: spacing.sm,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: colors.text.tertiary,
+    fontWeight: '500',
   },
 });
 

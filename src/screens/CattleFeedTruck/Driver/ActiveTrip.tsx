@@ -170,22 +170,13 @@ const CattleFeedTruckDriverActiveTrip: React.FC = () => {
 
       sendNotificationToOwner(trip, location, quantity, receiverName);
 
-      setTrip(response.data);
+      const updatedTrip = response.data || response;
+      setTrip(updatedTrip);
 
-      const updatedTrip = response.data;
       const allDelivered = updatedTrip.deliveryEntries?.every((e: any) => e.actualDelivery?.deliveredAt);
 
       if (allDelivered && updatedTrip.deliveryEntries.length > 0) {
-        setTimeout(async () => {
-          try {
-            await cattleFeedTruckAPI.updateTrip(trip._id, { status: 'completed', endTime: new Date() });
-            sendNotificationToOwner(trip, 'All Locations', 0, '', 'trip_completed');
-            toast.success('All deliveries completed! Trip marked as completed.');
-            navigation.navigate('CattleFeedTruckDriverDashboard');
-          } catch (error) {
-            console.error('Error completing trip:', error);
-          }
-        }, 1000);
+        toast.info('All locations delivered! You can now finish the trip.');
       }
 
       setShowReceiverModal(false);
@@ -339,6 +330,12 @@ const CattleFeedTruckDriverActiveTrip: React.FC = () => {
           <RefreshControl refreshing={refreshing} onRefresh={() => fetchActiveTrip(false)} tintColor={colors.primary[600]} />
         }
       >
+        {allDelivered && (
+          <Card style={styles.readyBanner}>
+            <Text style={styles.readyTitle}>🎊 DELIVERIES FINISHED!</Text>
+            <Text style={styles.readySubtitle}>Please click the button below to finalize and close this trip.</Text>
+          </Card>
+        )}
         {/* Info Card */}
         <Card variant="elevated" style={styles.infoCard}>
           <View style={styles.infoGrid}>
@@ -426,7 +423,7 @@ const CattleFeedTruckDriverActiveTrip: React.FC = () => {
             colors={allDelivered ? [colors.secondary[500], colors.secondary[700]] : [colors.primary[400], colors.primary[600]]}
             style={styles.buttonGradient}
           >
-            <Text style={styles.buttonText}>{allDelivered ? 'FINISH TRIP' : 'END TRIP (INCOMPLETE)'}</Text>
+            <Text style={styles.buttonText}>{allDelivered ? 'COMPLETE TRIP' : 'END TRIP (INCOMPLETE)'}</Text>
           </LinearGradient>
         </TouchableOpacity>
 
@@ -464,13 +461,17 @@ const CattleFeedTruckDriverActiveTrip: React.FC = () => {
             <View style={styles.modalInfoRow}>
               <Text style={styles.modalInfoLabel}>POINT:</Text>
               <Text style={styles.modalInfoValue} numberOfLines={1}>
-                {currentDeliveryIndex !== -1 && (trip?.deliveryEntries![currentDeliveryIndex].notes || trip?.deliveryEntries![currentDeliveryIndex].location || `Location ${currentDeliveryIndex + 1}`)}
+                {currentDeliveryIndex !== -1 && trip?.deliveryEntries?.[currentDeliveryIndex] && (
+                  trip.deliveryEntries[currentDeliveryIndex].notes ||
+                  trip.deliveryEntries[currentDeliveryIndex].location ||
+                  `Location ${currentDeliveryIndex + 1}`
+                )}
               </Text>
             </View>
             <View style={styles.modalInfoRow}>
               <Text style={styles.modalInfoLabel}>PLANNED:</Text>
               <Text style={styles.modalInfoValue}>
-                {currentDeliveryIndex !== -1 && trip?.deliveryEntries![currentDeliveryIndex].plannedDelivery?.feedItems?.reduce((s: number, i: any) => s + (i.quantity || 0), 0)} Bags
+                {currentDeliveryIndex !== -1 && trip?.deliveryEntries?.[currentDeliveryIndex]?.plannedDelivery?.feedItems?.reduce((s: number, i: any) => s + (i.quantity || 0), 0)} Bags
               </Text>
             </View>
           </View>
@@ -777,6 +778,27 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'right',
     marginLeft: spacing.md,
+  },
+  readyBanner: {
+    backgroundColor: colors.success[50],
+    borderColor: colors.success[200],
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    padding: spacing.lg,
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+  },
+  readyTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.success[700],
+    marginBottom: 4,
+  },
+  readySubtitle: {
+    fontSize: 12,
+    color: colors.success[600],
+    textAlign: 'center',
+    fontWeight: '500',
   },
 });
 

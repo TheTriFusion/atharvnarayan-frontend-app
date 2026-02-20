@@ -1,22 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator } from 'react-native';
 import { getCattleFeedOrders, getCattleFeedInventory, updateCattleFeedOrderPayment, updateCattleFeedInventory } from '../../../utils/storage';
 import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
 import Input from '../../../components/common/Input';
 import Modal from '../../../components/common/Modal';
 import Select from '../../../components/common/Select';
+import ScreenHeader from '../../../components/common/ScreenHeader';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useOwner } from '../../../contexts/OwnerContext';
 import OwnerSelector from '../../../components/SuperAdmin/OwnerSelector';
+import { colors } from '../../../theme/colors';
+import { spacing, borderRadius, shadows } from '../../../theme/spacing';
+import { typography } from '../../../theme/typography';
+import LinearGradient from 'react-native-linear-gradient';
 
 const FinanceManagement: React.FC = () => {
   const { isSuperAdmin } = useAuth();
   const { selectedOwnerId } = useOwner();
-  const { success, error: showError } = useToast();
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState<'customer' | 'supplier'>('customer');
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [customerDues, setCustomerDues] = useState<any[]>([]);
   const [supplierDues, setSupplierDues] = useState<any[]>([]);
   const [modal, setModal] = useState({ show: false, type: '', item: null as any, amount: '', status: 'partial' });
@@ -46,11 +52,16 @@ const FinanceManagement: React.FC = () => {
       });
       setSupplierDues(dueInventory);
     } catch (err: any) {
-      console.error(err);
-      showError('Failed to load finance data');
+      toast.error('Failed to load finance data');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadData();
   };
 
   const handleOpenPayment = (type: string, item: any) => {
@@ -67,7 +78,7 @@ const FinanceManagement: React.FC = () => {
     try {
       const amount = parseFloat(modal.amount);
       if (isNaN(amount) || amount <= 0) {
-        showError('Please enter a valid amount');
+        toast.error('Please enter a valid amount');
         return;
       }
 
@@ -81,7 +92,7 @@ const FinanceManagement: React.FC = () => {
           amountPaid: newPaid,
           paymentStatus: status,
         });
-        success('Payment recorded for Customer');
+        toast.success('Payment recorded');
       } else {
         const currentPaid = item.amountPaid || 0;
         const newPaid = currentPaid + amount;
@@ -90,14 +101,13 @@ const FinanceManagement: React.FC = () => {
           amountPaid: newPaid,
           paymentStatus: status,
         });
-        success('Payment recorded for Supplier');
+        toast.success('Payment recorded');
       }
 
       setModal({ show: false, type: '', item: null, amount: '', status: 'partial' });
       loadData();
     } catch (err: any) {
-      console.error(err);
-      showError('Failed to record payment');
+      toast.error('Failed to record payment');
     }
   };
 
@@ -109,397 +119,393 @@ const FinanceManagement: React.FC = () => {
 
   const stats = calculateTotalStats();
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading finance data...</Text>
-      </View>
-    );
-  }
-
   return (
-    <ScrollView style={styles.container}>
-      {isSuperAdmin && <OwnerSelector systemType="cattleFeed" />}
+    <View style={styles.container}>
+      <ScreenHeader
+        title="Finance"
+        subtitle="Outstanding dues & payments"
+        showBackButton
+      />
 
-      <Text style={styles.title}>Finance Management</Text>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary[500]]} />
+        }
+      >
+        <View style={styles.content}>
+          {isSuperAdmin && <OwnerSelector systemType="cattleFeed" />}
 
-      <View style={styles.statsRow}>
-        <Card style={styles.receivableCard}>
-          <Text style={styles.statsTitle}>Total Receivable (From Customers)</Text>
-          <Text style={styles.statsAmount}>₹{stats.totalCustomerReceivable.toFixed(2)}</Text>
-          <Text style={styles.statsCount}>{customerDues.length} pending orders</Text>
-        </Card>
-        <Card style={styles.payableCard}>
-          <Text style={styles.statsTitle}>Total Payable (To Suppliers)</Text>
-          <Text style={styles.statsAmount}>₹{stats.totalSupplierPayable.toFixed(2)}</Text>
-          <Text style={styles.statsCount}>{supplierDues.length} pending bills</Text>
-        </Card>
-      </View>
+          {/* Quick Stats Summary */}
+          <View style={styles.statsRow}>
+            <LinearGradient
+              colors={['#10b981', '#059669']}
+              style={[styles.statCard, shadows.md]}
+            >
+              <Text style={styles.statLabel}>Receivable</Text>
+              <Text style={styles.statAmount}>₹{stats.totalCustomerReceivable.toLocaleString()}</Text>
+              <View style={styles.statBadge}>
+                <Text style={styles.badgeText}>{customerDues.length} Customers</Text>
+              </View>
+            </LinearGradient>
 
-      <View style={styles.tabs}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'customer' && styles.activeTab]}
-          onPress={() => setActiveTab('customer')}
-        >
-          <Text style={[styles.tabText, activeTab === 'customer' && styles.activeTabText]}>
-            Customer Dues (Receivables)
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'supplier' && styles.activeTab]}
-          onPress={() => setActiveTab('supplier')}
-        >
-          <Text style={[styles.tabText, activeTab === 'supplier' && styles.activeTabText]}>
-            Supplier Dues (Payables)
-          </Text>
-        </TouchableOpacity>
-      </View>
+            <LinearGradient
+              colors={['#ef4444', '#dc2626']}
+              style={[styles.statCard, shadows.md]}
+            >
+              <Text style={styles.statLabel}>Payable</Text>
+              <Text style={styles.statAmount}>₹{stats.totalSupplierPayable.toLocaleString()}</Text>
+              <View style={styles.statBadge}>
+                <Text style={styles.badgeText}>{supplierDues.length} Suppliers</Text>
+              </View>
+            </LinearGradient>
+          </View>
 
-      <Card>
-        {activeTab === 'customer' ? (
-          customerDues.length === 0 ? (
-            <Text style={styles.emptyText}>No outstanding customer dues.</Text>
+          {/* Tabs */}
+          <View style={styles.tabsContainer}>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'customer' && styles.activeTab]}
+              onPress={() => setActiveTab('customer')}
+            >
+              <Text style={[styles.tabText, activeTab === 'customer' && styles.activeTabText]}>Customers</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'supplier' && styles.activeTab]}
+              onPress={() => setActiveTab('supplier')}
+            >
+              <Text style={[styles.tabText, activeTab === 'supplier' && styles.activeTabText]}>Suppliers</Text>
+            </TouchableOpacity>
+          </View>
+
+          {loading && !refreshing ? (
+            <ActivityIndicator size="large" color={colors.primary[500]} style={styles.loader} />
           ) : (
-            <View style={styles.list}>
-              {customerDues.map((order) => {
-                const due = order.totalAmount - (order.amountPaid || 0);
-                return (
-                  <View key={order._id} style={styles.listItem}>
-                    <View style={styles.listItemContent}>
-                      <Text style={styles.listItemName}>
-                        {order.customerId?.name || 'Unknown'}
-                      </Text>
-                      <Text style={styles.listItemDetail}>{order.customerId?.phone}</Text>
-                      <Text style={styles.listItemDetail}>Order #{order.orderNumber}</Text>
-                      <Text style={styles.listItemDetail}>
-                        Date: {new Date(order.createdAt).toLocaleDateString()}
-                      </Text>
-                      <View style={styles.amountRow}>
-                        <Text style={styles.amountLabel}>Total: </Text>
-                        <Text style={styles.amountValue}>₹{order.totalAmount}</Text>
+            <View style={styles.listContainer}>
+              <View style={styles.listHeader}>
+                <Text style={styles.listTitle}>
+                  {activeTab === 'customer' ? 'Customer Receivables' : 'Supplier Payables'}
+                </Text>
+              </View>
+
+              {(activeTab === 'customer' ? customerDues : supplierDues).length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyEmoji}>🎉</Text>
+                  <Text style={styles.emptyText}>No pending {activeTab} dues found.</Text>
+                </View>
+              ) : (
+                (activeTab === 'customer' ? customerDues : supplierDues).map((item) => {
+                  const due = activeTab === 'customer'
+                    ? (item.totalAmount - (item.amountPaid || 0))
+                    : ((item.purchaseCost || 0) - (item.amountPaid || 0));
+
+                  return (
+                    <Card key={item._id || item.id} style={styles.dueCard}>
+                      <View style={styles.dueTop}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.dueName}>
+                            {activeTab === 'customer' ? (item.customerId?.name || 'Unknown') : (item.supplier || 'N/A')}
+                          </Text>
+                          <Text style={styles.dueSubtext}>
+                            {activeTab === 'customer' ? `Order #${item.orderNumber}` : item.name}
+                          </Text>
+                        </View>
+                        <View style={styles.badgeContainer}>
+                          <View style={[styles.statusBadge,
+                          item.paymentStatus === 'partial' ? { backgroundColor: '#fef3c7' } : { backgroundColor: '#fee2e2' }
+                          ]}>
+                            <Text style={[styles.statusText,
+                            item.paymentStatus === 'partial' ? { color: '#92400e' } : { color: '#991b1b' }
+                            ]}>{item.paymentStatus || 'pending'}</Text>
+                          </View>
+                        </View>
                       </View>
-                      <View style={styles.amountRow}>
-                        <Text style={styles.amountLabel}>Paid: </Text>
-                        <Text style={styles.paidAmount}>₹{order.amountPaid || 0}</Text>
+
+                      <View style={styles.divider} />
+
+                      <View style={styles.amountBreakdown}>
+                        <View style={styles.amountItem}>
+                          <Text style={styles.amountLabelSmall}>Total</Text>
+                          <Text style={styles.amountValueSmall}>₹{activeTab === 'customer' ? item.totalAmount : item.purchaseCost}</Text>
+                        </View>
+                        <View style={styles.amountItem}>
+                          <Text style={styles.amountLabelSmall}>Paid</Text>
+                          <Text style={[styles.amountValueSmall, { color: colors.success[600] }]}>₹{item.amountPaid || 0}</Text>
+                        </View>
+                        <View style={styles.amountItem}>
+                          <Text style={styles.amountLabelSmall}>Balance</Text>
+                          <Text style={[styles.amountValueSmall, { color: colors.error[600], fontWeight: 'bold' }]}>₹{due}</Text>
+                        </View>
                       </View>
-                      <View style={styles.amountRow}>
-                        <Text style={styles.amountLabel}>Due: </Text>
-                        <Text style={styles.dueAmount}>₹{due}</Text>
-                      </View>
-                      <View style={[styles.statusBadge, order.paymentStatus === 'paid' ? styles.paidBadge : 
-                        order.paymentStatus === 'partial' ? styles.partialBadge : styles.pendingBadge]}>
-                        <Text style={styles.statusText}>{order.paymentStatus || 'pending'}</Text>
-                      </View>
-                    </View>
-                    <Button
-                      variant="primary"
-                      onPress={() => handleOpenPayment('customer', order)}
-                      style={styles.payButton}
-                    >
-                      Record Pay
-                    </Button>
-                  </View>
-                );
-              })}
+
+                      <TouchableOpacity
+                        style={styles.payBtn}
+                        onPress={() => handleOpenPayment(activeTab, item)}
+                      >
+                        <Text style={styles.payBtnText}>Record Payment</Text>
+                      </TouchableOpacity>
+                    </Card>
+                  );
+                })
+              )}
             </View>
-          )
-        ) : (
-          supplierDues.length === 0 ? (
-            <Text style={styles.emptyText}>No outstanding supplier dues.</Text>
-          ) : (
-            <View style={styles.list}>
-              {supplierDues.map((item) => {
-                const due = (Number(item.purchaseCost) || 0) - (Number(item.amountPaid) || 0);
-                return (
-                  <View key={item._id || item.id} style={styles.listItem}>
-                    <View style={styles.listItemContent}>
-                      <Text style={styles.listItemName}>{item.supplier || 'N/A'}</Text>
-                      <Text style={styles.listItemDetail}>{item.name}</Text>
-                      <Text style={styles.listItemDetail}>
-                        {item.quantity} {item.unit}
-                      </Text>
-                      <View style={styles.amountRow}>
-                        <Text style={styles.amountLabel}>Cost: </Text>
-                        <Text style={styles.amountValue}>₹{Number(item.purchaseCost || 0)}</Text>
-                      </View>
-                      <View style={styles.amountRow}>
-                        <Text style={styles.amountLabel}>Paid: </Text>
-                        <Text style={styles.paidAmount}>₹{Number(item.amountPaid || 0)}</Text>
-                      </View>
-                      <View style={styles.amountRow}>
-                        <Text style={styles.amountLabel}>Due: </Text>
-                        <Text style={styles.dueAmount}>₹{due}</Text>
-                      </View>
-                      <View style={[styles.statusBadge, item.paymentStatus === 'paid' ? styles.paidBadge : 
-                        item.paymentStatus === 'partial' ? styles.partialBadge : styles.pendingBadge]}>
-                        <Text style={styles.statusText}>{item.paymentStatus || 'pending'}</Text>
-                      </View>
-                    </View>
-                    <Button
-                      variant="primary"
-                      onPress={() => handleOpenPayment('supplier', item)}
-                      style={styles.payButton}
-                    >
-                      Pay Supplier
-                    </Button>
-                  </View>
-                );
-              })}
-            </View>
-          )
-        )}
-      </Card>
+          )}
+        </View>
+      </ScrollView>
 
       <Modal
         visible={modal.show}
         onClose={() => setModal({ show: false, type: '', item: null, amount: '', status: 'partial' })}
-        title={`Record Payment for ${modal.type === 'customer' ? 'Customer' : 'Supplier'}`}
+        title={`Payment: ${modal.type === 'customer' ? (modal.item?.customerId?.name || 'Customer') : (modal.item?.supplier || 'Supplier')}`}
       >
-        <View style={styles.modalContent}>
-          <View style={styles.paymentInfoBox}>
-            <View style={styles.paymentInfoRow}>
-              <Text style={styles.paymentInfoLabel}>Total Amount:</Text>
-              <Text style={styles.paymentInfoValue}>
-                ₹{modal.type === 'customer'
-                  ? modal.item?.totalAmount
-                  : modal.item?.purchaseCost || 0}
-              </Text>
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <View style={styles.modalBody}>
+            <View style={styles.paymentSummaryBox}>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Balance Due</Text>
+                <Text style={styles.summaryValueBig}>₹{
+                  modal.type === 'customer'
+                    ? (modal.item?.totalAmount - (modal.item?.amountPaid || 0))
+                    : ((modal.item?.purchaseCost || 0) - (modal.item?.amountPaid || 0))
+                }</Text>
+              </View>
             </View>
-            <View style={styles.paymentInfoRow}>
-              <Text style={styles.paymentInfoLabel}>Already Paid:</Text>
-              <Text style={[styles.paymentInfoValue, styles.paidAmount]}>
-                ₹{modal.item?.amountPaid || 0}
-              </Text>
-            </View>
-            <View style={[styles.paymentInfoRow, styles.balanceRow]}>
-              <Text style={styles.paymentInfoLabel}>Balance Due:</Text>
-              <Text style={[styles.paymentInfoValue, styles.dueAmount]}>
-                ₹{modal.type === 'customer'
-                  ? (modal.item?.totalAmount - (modal.item?.amountPaid || 0))
-                  : ((modal.item?.purchaseCost || 0) - (modal.item?.amountPaid || 0))}
-              </Text>
+
+            <Input
+              label="Payment Amount *"
+              value={modal.amount}
+              onChangeText={(v) => setModal(prev => ({ ...prev, amount: v }))}
+              keyboardType="decimal-pad"
+              placeholder="0.00"
+            />
+
+            <Select
+              label="Updated Status"
+              value={modal.status}
+              onChange={(v) => setModal(prev => ({ ...prev, status: v as string }))}
+              options={[
+                { value: 'partial', label: 'Partial Payment' },
+                { value: 'paid', label: 'Fully Paid' },
+                { value: 'pending', label: 'Pending' },
+              ]}
+            />
+
+            <View style={styles.modalActions}>
+              <Button
+                variant="outline"
+                style={{ flex: 1 }}
+                onPress={() => setModal({ show: false, type: '', item: null, amount: '', status: 'partial' })}
+              >Cancel</Button>
+              <Button
+                style={{ flex: 1 }}
+                onPress={handlePaymentSubmit}
+              >Save</Button>
             </View>
           </View>
-
-          <Input
-            label="Payment Amount (₹)"
-            value={modal.amount}
-            onChangeText={(value) => setModal(prev => ({ ...prev, amount: value }))}
-            keyboardType="decimal-pad"
-            required
-          />
-
-          <Select
-            label="New Payment Status"
-            value={modal.status}
-            onChange={(value) => setModal(prev => ({ ...prev, status: value as string }))}
-            options={[
-              { value: 'pending', label: 'Pending' },
-              { value: 'partial', label: 'Partial' },
-              { value: 'paid', label: 'Paid' },
-            ]}
-          />
-
-          <View style={styles.modalButtons}>
-            <Button
-              variant="secondary"
-              onPress={() => setModal({ show: false, type: '', item: null, amount: '', status: 'partial' })}
-            >
-              Cancel
-            </Button>
-            <Button variant="primary" onPress={handlePaymentSubmit}>
-              Save Payment
-            </Button>
-          </View>
-        </View>
+          <View style={{ height: 20 }} />
+        </ScrollView>
       </Modal>
-    </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#f8fafc',
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  content: {
+    padding: spacing.lg,
   },
-  loadingText: {
-    fontSize: 18,
-    color: '#6b7280',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: 16,
+  loader: {
+    marginVertical: spacing.xxl,
   },
   statsRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
+    gap: spacing.md,
+    marginBottom: spacing.xl,
   },
-  receivableCard: {
+  statCard: {
     flex: 1,
-    backgroundColor: '#d1fae5',
-    borderColor: '#10b981',
+    padding: spacing.lg,
+    borderRadius: borderRadius.xl,
+    justifyContent: 'center',
   },
-  payableCard: {
-    flex: 1,
-    backgroundColor: '#fee2e2',
-    borderColor: '#ef4444',
-  },
-  statsTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#065f46',
-    marginBottom: 8,
-  },
-  statsAmount: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#065f46',
+  statLabel: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 12,
+    fontWeight: typography.fontWeight.bold,
+    textTransform: 'uppercase',
     marginBottom: 4,
   },
-  statsCount: {
-    fontSize: 12,
-    color: '#047857',
+  statAmount: {
+    color: 'white',
+    fontSize: 22,
+    fontWeight: typography.fontWeight.bold,
+    marginBottom: 8,
   },
-  tabs: {
+  statBadge: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
+  badgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: typography.fontWeight.bold,
+  },
+  tabsContainer: {
     flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-    marginBottom: 16,
+    backgroundColor: '#f1f5f9',
+    borderRadius: borderRadius.lg,
+    padding: 4,
+    marginBottom: spacing.lg,
   },
   tab: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 10,
     alignItems: 'center',
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
+    borderRadius: borderRadius.md,
   },
   activeTab: {
-    borderBottomColor: '#2563eb',
+    backgroundColor: 'white',
+    ...shadows.sm,
   },
   tabText: {
     fontSize: 14,
-    fontWeight: '500',
-    color: '#6b7280',
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.text.tertiary,
   },
   activeTabText: {
-    color: '#2563eb',
-    fontWeight: '600',
+    color: colors.primary[600],
   },
-  emptyText: {
-    textAlign: 'center',
-    padding: 20,
-    color: '#6b7280',
+  listContainer: {
+    marginBottom: spacing.xxl,
   },
-  list: {
-    gap: 12,
+  listHeader: {
+    marginBottom: spacing.md,
   },
-  listItem: {
-    backgroundColor: '#ffffff',
-    padding: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    marginBottom: 8,
+  listTitle: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
   },
-  listItemContent: {
-    marginBottom: 12,
+  dueCard: {
+    padding: spacing.lg,
+    marginBottom: spacing.md,
   },
-  listItemName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1f2937',
-    marginBottom: 4,
-  },
-  listItemDetail: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 2,
-  },
-  amountRow: {
+  dueTop: {
     flexDirection: 'row',
-    marginBottom: 4,
+    alignItems: 'flex-start',
   },
-  amountLabel: {
-    fontSize: 14,
-    color: '#6b7280',
+  dueName: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
   },
-  amountValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1f2937',
+  dueSubtext: {
+    fontSize: 12,
+    color: colors.text.tertiary,
+    marginTop: 2,
   },
-  paidAmount: {
-    color: '#059669',
-  },
-  dueAmount: {
-    color: '#dc2626',
-    fontWeight: 'bold',
+  badgeContainer: {
+    marginLeft: spacing.sm,
   },
   statusBadge: {
-    alignSelf: 'flex-start',
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-    marginTop: 8,
-  },
-  paidBadge: {
-    backgroundColor: '#d1fae5',
-  },
-  partialBadge: {
-    backgroundColor: '#fef3c7',
-  },
-  pendingBadge: {
-    backgroundColor: '#fee2e2',
+    paddingVertical: 3,
+    borderRadius: 6,
   },
   statusText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#374151',
+    fontSize: 10,
+    fontWeight: typography.fontWeight.bold,
+    textTransform: 'uppercase',
   },
-  payButton: {
-    marginTop: 8,
+  divider: {
+    height: 1,
+    backgroundColor: '#f1f5f9',
+    marginVertical: spacing.md,
   },
-  modalContent: {
-    gap: 16,
-  },
-  paymentInfoBox: {
-    backgroundColor: '#f9fafb',
-    padding: 12,
-    borderRadius: 8,
-    gap: 8,
-  },
-  paymentInfoRow: {
+  amountBreakdown: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginBottom: spacing.lg,
+    backgroundColor: '#f8fafc',
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
   },
-  balanceRow: {
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-    paddingTop: 8,
-    marginTop: 4,
+  amountItem: {
+    alignItems: 'center',
   },
-  paymentInfoLabel: {
+  amountLabelSmall: {
+    fontSize: 10,
+    color: colors.text.tertiary,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  amountValueSmall: {
     fontSize: 14,
-    color: '#6b7280',
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.text.primary,
   },
-  paymentInfoValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1f2937',
+  payBtn: {
+    backgroundColor: colors.primary[50],
+    paddingVertical: 12,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
   },
-  modalButtons: {
+  payBtnText: {
+    color: colors.primary[700],
+    fontSize: 13,
+    fontWeight: typography.fontWeight.bold,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: spacing.xxl,
+    backgroundColor: 'white',
+    borderRadius: borderRadius.xl,
+    marginTop: spacing.md,
+  },
+  emptyEmoji: {
+    fontSize: 40,
+    marginBottom: spacing.md,
+    opacity: 0.2,
+  },
+  emptyText: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.tertiary,
+  },
+  modalBody: {
+    paddingVertical: spacing.sm,
+  },
+  paymentSummaryBox: {
+    backgroundColor: '#f8fafc',
+    padding: spacing.lg,
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing.xl,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  summaryRow: {
+    alignItems: 'center',
+  },
+  summaryLabel: {
+    fontSize: 12,
+    color: colors.text.tertiary,
+    textTransform: 'uppercase',
+    fontWeight: typography.fontWeight.bold,
+    marginBottom: 4,
+  },
+  summaryValueBig: {
+    fontSize: 28,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.error[600],
+  },
+  modalActions: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
+    gap: spacing.md,
+    marginTop: spacing.lg,
   },
 });
 

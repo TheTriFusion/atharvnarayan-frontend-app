@@ -35,9 +35,7 @@ const Welcome: React.FC = () => {
 
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.content}>
-          <View /> {/* Spacer for centering branding */}
-
-          {/* Centered Branding Section */}
+          <View />
           <View style={styles.brandingSection}>
             <View style={styles.logoWrapper}>
               <Image
@@ -51,8 +49,6 @@ const Welcome: React.FC = () => {
             <View style={styles.separator} />
             <Text style={styles.tagline}>Quality Milk, Every Day</Text>
           </View>
-
-          {/* Buttons Section at Bottom */}
           <View style={styles.footerSection}>
             <View style={styles.buttonContainer}>
               <Button
@@ -61,21 +57,15 @@ const Welcome: React.FC = () => {
                 style={styles.loginButton}
                 textStyle={styles.loginButtonText}
                 size="lg"
-              >
-                Log In
-              </Button>
-
+              >Log In</Button>
               <Button
                 onPress={() => navigation.navigate('Register')}
                 variant="outline"
                 style={styles.outlineButton}
                 textStyle={styles.outlineButtonText}
                 size="lg"
-              >
-                Create Account
-              </Button>
+              >Create Account</Button>
             </View>
-
             <View style={styles.versionContainer}>
               <Text style={styles.versionText}>Version 2.0.0</Text>
               <Text style={styles.poweredBy}>Powered by AtharvNarayan</Text>

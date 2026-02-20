@@ -1,21 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { getCattleFeedCustomers, getCattleFeedCustomerPurchases, getCattleFeedSales } from '../../../utils/storage';
 import Card from '../../../components/common/Card';
 import Input from '../../../components/common/Input';
 import Modal from '../../../components/common/Modal';
 import Button from '../../../components/common/Button';
+import ScreenHeader from '../../../components/common/ScreenHeader';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useOwner } from '../../../contexts/OwnerContext';
 import OwnerSelector from '../../../components/SuperAdmin/OwnerSelector';
+import { colors } from '../../../theme/colors';
+import { spacing, borderRadius, shadows } from '../../../theme/spacing';
+import { typography } from '../../../theme/typography';
 
 const CustomerManagement: React.FC = () => {
   const { isSuperAdmin } = useAuth();
   const { selectedOwnerId } = useOwner();
-  const { error: showError } = useToast();
+  const toast = useToast();
   const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [customerPurchases, setCustomerPurchases] = useState<any[]>([]);
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
@@ -33,15 +38,15 @@ const CustomerManagement: React.FC = () => {
         getCattleFeedCustomers(ownerId),
         getCattleFeedSales(ownerId),
       ]);
-      
+
       const updatedCustomers = (Array.isArray(allCustomers) ? allCustomers : []).map((customer: any) => {
         const purchases = (Array.isArray(allSales) ? allSales : []).filter((sale: any) => sale.customerPhone === customer.phone);
         const totalPurchases = purchases.length;
         const totalAmount = purchases.reduce((sum: number, sale: any) => sum + (sale.totalAmount || 0), 0);
-        const lastPurchase = purchases.length > 0 
+        const lastPurchase = purchases.length > 0
           ? purchases.sort((a: any, b: any) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime())[0]
           : null;
-        
+
         return {
           ...customer,
           totalPurchases,
@@ -49,25 +54,31 @@ const CustomerManagement: React.FC = () => {
           lastPurchaseDate: lastPurchase?.date || lastPurchase?.createdAt || customer.lastPurchaseDate,
         };
       });
-      
+
       setCustomers(updatedCustomers);
     } catch (err: any) {
-      showError(err.message || 'Failed to load customers');
+      toast.error(err.message || 'Failed to load customers');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadData();
   };
 
   const handleViewPurchases = async (customer: any) => {
     try {
       setSelectedCustomer(customer);
       const purchases = await getCattleFeedCustomerPurchases(customer.phone);
-      setCustomerPurchases((Array.isArray(purchases) ? purchases : []).sort((a: any, b: any) => 
+      setCustomerPurchases((Array.isArray(purchases) ? purchases : []).sort((a: any, b: any) =>
         new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime()
       ));
       setShowPurchaseModal(true);
     } catch (err: any) {
-      showError(err.message || 'Failed to load customer purchases');
+      toast.error(err.message || 'Failed to load customer purchases');
     }
   };
 
@@ -80,66 +91,95 @@ const CustomerManagement: React.FC = () => {
     );
   });
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading customers...</Text>
-      </View>
-    );
-  }
-
   return (
-    <ScrollView style={styles.container}>
-      {isSuperAdmin && <OwnerSelector systemType="cattleFeed" />}
-      
-      <View style={styles.header}>
-        <Text style={styles.title}>Customer Management</Text>
-      </View>
+    <View style={styles.container}>
+      <ScreenHeader
+        title="Customers"
+        subtitle="Manage client relationships"
+        showBackButton
+      />
 
-      <Card>
-        <Input
-          label="Search Customers"
-          value={searchTerm}
-          onChangeText={setSearchTerm}
-          placeholder="Search by name, phone, or email..."
-        />
-      </Card>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary[500]]} />
+        }
+      >
+        <View style={styles.content}>
+          {isSuperAdmin && <OwnerSelector systemType="cattleFeed" />}
 
-      <Card title={`Customers (${filteredCustomers.length})`}>
-        {filteredCustomers.length === 0 ? (
-          <Text style={styles.emptyText}>No customers found</Text>
-        ) : (
-          <View style={styles.list}>
-            {filteredCustomers.map((customer) => (
-              <View key={customer._id || customer.id} style={styles.listItem}>
-                <View style={styles.listItemContent}>
-                  <Text style={styles.listItemName}>{customer.name}</Text>
-                  <Text style={styles.listItemDetail}>📞 {customer.phone}</Text>
-                  {customer.email && <Text style={styles.listItemDetail}>📧 {customer.email}</Text>}
-                  <Text style={styles.listItemDetail}>
-                    🛒 Total Purchases: {customer.totalPurchases || 0}
-                  </Text>
-                  <Text style={styles.listItemDetail}>
-                    💰 Total Amount: ₹{customer.totalAmount?.toFixed(2) || '0.00'}
-                  </Text>
-                  <Text style={styles.listItemDetail}>
-                    📅 Last Purchase: {customer.lastPurchaseDate 
-                      ? new Date(customer.lastPurchaseDate).toLocaleDateString()
-                      : '-'}
-                  </Text>
-                </View>
-                <Button
-                  variant="primary"
-                  onPress={() => handleViewPurchases(customer)}
-                  style={styles.viewButton}
-                >
-                  View Purchases
-                </Button>
+          <Card style={styles.searchCard}>
+            <Input
+              label="Search Customers"
+              value={searchTerm}
+              onChangeText={setSearchTerm}
+              placeholder="Name, Phone or Email..."
+            />
+          </Card>
+
+          {loading && !refreshing ? (
+            <ActivityIndicator size="large" color={colors.primary[500]} style={styles.loader} />
+          ) : (
+            <View style={styles.listContainer}>
+              <View style={styles.listHeader}>
+                <Text style={styles.listTitle}>All Customers</Text>
+                <Text style={styles.listCount}>{filteredCustomers.length} Total</Text>
               </View>
-            ))}
-          </View>
-        )}
-      </Card>
+
+              {filteredCustomers.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyEmoji}>👥</Text>
+                  <Text style={styles.emptyText}>No customers found matching search.</Text>
+                </View>
+              ) : (
+                filteredCustomers.map((customer) => (
+                  <Card key={customer._id || customer.id} style={styles.customerCard}>
+                    <View style={styles.customerTop}>
+                      <View style={styles.avatar}>
+                        <Text style={styles.avatarText}>
+                          {customer.name?.charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                      <View style={styles.customerInfo}>
+                        <Text style={styles.customerName}>{customer.name}</Text>
+                        <Text style={styles.customerPhone}>📞 {customer.phone}</Text>
+                      </View>
+                      <View style={styles.purchaseCount}>
+                        <Text style={styles.countNumber}>{customer.totalPurchases || 0}</Text>
+                        <Text style={styles.countText}>Purchases</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.divider} />
+
+                    <View style={styles.statsRow}>
+                      <View style={styles.statItem}>
+                        <Text style={styles.statLabel}>Total Value</Text>
+                        <Text style={styles.statValue}>₹{customer.totalAmount?.toFixed(0)}</Text>
+                      </View>
+                      <View style={styles.statItem}>
+                        <Text style={styles.statLabel}>Last Transaction</Text>
+                        <Text style={styles.statValue}>
+                          {customer.lastPurchaseDate
+                            ? new Date(customer.lastPurchaseDate).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+                            : '-'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <TouchableOpacity
+                      style={styles.historyBtn}
+                      onPress={() => handleViewPurchases(customer)}
+                    >
+                      <Text style={styles.historyBtnText}>View History</Text>
+                    </TouchableOpacity>
+                  </Card>
+                ))
+              )}
+            </View>
+          )}
+        </View>
+      </ScrollView>
 
       <Modal
         visible={showPurchaseModal}
@@ -147,166 +187,273 @@ const CustomerManagement: React.FC = () => {
           setShowPurchaseModal(false);
           setSelectedCustomer(null);
         }}
-        title={`Purchase History - ${selectedCustomer?.name || ''}`}
+        title={`History: ${selectedCustomer?.name || ''}`}
       >
-        <ScrollView style={styles.modalContent}>
-          {customerPurchases.length === 0 ? (
-            <Text style={styles.emptyText}>No purchases found for this customer</Text>
-          ) : (
-            <View style={styles.purchasesList}>
-              {customerPurchases.map((purchase: any) => (
-                <View key={purchase._id || purchase.id} style={styles.purchaseItem}>
-                  <View style={styles.purchaseHeader}>
-                    <Text style={styles.purchaseDate}>
-                      {new Date(purchase.date || purchase.createdAt).toLocaleDateString()}
-                    </Text>
-                    <View style={[styles.typeBadge, purchase.saleType === 'wholesale' ? styles.wholesaleBadge : styles.retailBadge]}>
-                      <Text style={styles.typeBadgeText}>{purchase.saleType}</Text>
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <View style={styles.modalContent}>
+            {customerPurchases.length === 0 ? (
+              <View style={styles.modalEmpty}>
+                <Text style={styles.emptyText}>No transactions found.</Text>
+              </View>
+            ) : (
+              <View style={styles.purchasesList}>
+                {customerPurchases.map((purchase: any) => (
+                  <View key={purchase._id || purchase.id} style={styles.purchaseItem}>
+                    <View style={styles.purchaseHeader}>
+                      <Text style={styles.purchaseDate}>
+                        {new Date(purchase.date || purchase.createdAt).toLocaleDateString(undefined, {
+                          day: 'numeric', month: 'short', year: 'numeric'
+                        })}
+                      </Text>
+                      <View style={[styles.typeBadge, purchase.saleType === 'wholesale' ? styles.wholesaleBadge : styles.retailBadge]}>
+                        <Text style={styles.typeBadgeText}>{purchase.saleType}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.purchaseFooter}>
+                      <Text style={styles.purchaseItemsCount}>
+                        📦 {purchase.items?.length || 0} product{(purchase.items?.length || 0) !== 1 ? 's' : ''}
+                      </Text>
+                      <Text style={styles.purchaseAmount}>
+                        ₹{purchase.totalAmount?.toFixed(2)}
+                      </Text>
                     </View>
                   </View>
-                  <Text style={styles.purchaseItems}>
-                    {purchase.items?.length || 0} items
-                  </Text>
-                  <Text style={styles.purchaseAmount}>
-                    ₹{purchase.totalAmount?.toFixed(2) || '0.00'}
+                ))}
+
+                <View style={styles.grandTotalContainer}>
+                  <Text style={styles.grandTotalLabel}>Life-time Value</Text>
+                  <Text style={styles.grandTotalValue}>
+                    ₹{customerPurchases.reduce((sum: number, p: any) => sum + (p.totalAmount || 0), 0).toFixed(2)}
                   </Text>
                 </View>
-              ))}
-              <View style={styles.totalSection}>
-                <Text style={styles.totalLabel}>Total:</Text>
-                <Text style={styles.totalValue}>
-                  ₹{customerPurchases.reduce((sum: number, p: any) => sum + (p.totalAmount || 0), 0).toFixed(2)}
-                </Text>
               </View>
-            </View>
-          )}
+            )}
+            <Button variant="outline" onPress={() => setShowPurchaseModal(false)} style={{ marginTop: spacing.lg }}>
+              Close
+            </Button>
+          </View>
+          <View style={{ height: 40 }} />
         </ScrollView>
       </Modal>
-    </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#f8fafc',
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  content: {
+    padding: spacing.lg,
+  },
+  loader: {
+    marginVertical: spacing.xxl,
+  },
+  searchCard: {
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
+  },
+  listContainer: {
+    marginBottom: spacing.xxl,
+  },
+  listHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: spacing.md,
+    paddingHorizontal: 2,
+  },
+  listTitle: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+  },
+  listCount: {
+    fontSize: typography.fontSize.xs,
+    color: colors.text.tertiary,
+  },
+  customerCard: {
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  customerTop: {
+    flexDirection: 'row',
     alignItems: 'center',
   },
-  loadingText: {
-    fontSize: 18,
-    color: '#6b7280',
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.primary[100],
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.md,
   },
-  header: {
-    marginBottom: 16,
+  avatarText: {
+    fontSize: 20,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[700],
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1f2937',
+  customerInfo: {
+    flex: 1,
   },
-  emptyText: {
-    textAlign: 'center',
-    padding: 20,
-    color: '#6b7280',
+  customerName: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
   },
-  list: {
-    gap: 12,
+  customerPhone: {
+    fontSize: 13,
+    color: colors.text.tertiary,
+    marginTop: 2,
   },
-  listItem: {
-    backgroundColor: '#ffffff',
-    padding: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    marginBottom: 8,
+  purchaseCount: {
+    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: borderRadius.md,
   },
-  listItemContent: {
-    marginBottom: 12,
-  },
-  listItemName: {
+  countNumber: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#1f2937',
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+  },
+  countText: {
+    fontSize: 10,
+    color: colors.text.tertiary,
+    textTransform: 'uppercase',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#f1f5f9',
+    marginVertical: spacing.md,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: spacing.lg,
+  },
+  statItem: {
+    flex: 1,
+  },
+  statLabel: {
+    fontSize: 11,
+    color: colors.text.tertiary,
+    textTransform: 'uppercase',
+    fontWeight: typography.fontWeight.bold,
     marginBottom: 4,
   },
-  listItemDetail: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 2,
+  statValue: {
+    fontSize: 15,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
   },
-  viewButton: {
-    marginTop: 8,
+  historyBtn: {
+    backgroundColor: colors.primary[50],
+    paddingVertical: 12,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+  },
+  historyBtnText: {
+    color: colors.primary[700],
+    fontSize: 13,
+    fontWeight: typography.fontWeight.bold,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: spacing.xxl,
+    backgroundColor: 'white',
+    borderRadius: borderRadius.xl,
+    marginTop: spacing.md,
+  },
+  emptyEmoji: {
+    fontSize: 40,
+    marginBottom: spacing.md,
+    opacity: 0.2,
+  },
+  emptyText: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.tertiary,
+    textAlign: 'center',
   },
   modalContent: {
-    maxHeight: 500,
+    paddingVertical: spacing.sm,
+  },
+  modalEmpty: {
+    padding: spacing.xl,
+    alignItems: 'center',
   },
   purchasesList: {
-    gap: 12,
+    gap: spacing.md,
   },
   purchaseItem: {
-    backgroundColor: '#f9fafb',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 8,
+    backgroundColor: '#f8fafc',
+    padding: spacing.lg,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
   purchaseHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: spacing.sm,
   },
   purchaseDate: {
-    fontSize: 14,
-    color: '#6b7280',
+    fontSize: 13,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.text.primary,
   },
   typeBadge: {
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
+    paddingVertical: 2,
+    borderRadius: borderRadius.full,
   },
   wholesaleBadge: {
-    backgroundColor: '#e0e7ff',
+    backgroundColor: colors.secondary[50],
   },
   retailBadge: {
-    backgroundColor: '#ccfbf1',
+    backgroundColor: colors.success[50],
   },
   typeBadgeText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#374151',
+    fontSize: 10,
+    fontWeight: typography.fontWeight.bold,
+    textTransform: 'capitalize',
   },
-  purchaseItems: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 4,
+  purchaseFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  purchaseItemsCount: {
+    fontSize: 12,
+    color: colors.text.tertiary,
   },
   purchaseAmount: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#059669',
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[600],
   },
-  totalSection: {
+  grandTotalContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-    marginTop: 8,
+    alignItems: 'center',
+    marginTop: spacing.md,
+    padding: spacing.lg,
+    backgroundColor: colors.primary[50],
+    borderRadius: borderRadius.md,
   },
-  totalLabel: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1f2937',
+  grandTotalLabel: {
+    fontSize: 14,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[800],
   },
-  totalValue: {
+  grandTotalValue: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1f2937',
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[700],
   },
 });
 

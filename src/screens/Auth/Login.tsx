@@ -9,14 +9,13 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   StatusBar,
+  Image,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../contexts/AuthContext';
-import { useLanguage } from '../../contexts/LanguageContext';
 import Input from '../../components/common/Input';
 import Button from '../../components/common/Button';
-import LanguageSwitcher from '../../components/common/LanguageSwitcher';
 import { colors } from '../../theme/colors';
 
 const Login: React.FC = () => {
@@ -25,7 +24,6 @@ const Login: React.FC = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
-  const { t } = useLanguage();
   const navigation = useNavigation<any>();
 
   const handleSubmit = async () => {
@@ -76,8 +74,8 @@ const Login: React.FC = () => {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
     >
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={styles.container}>
@@ -96,20 +94,24 @@ const Login: React.FC = () => {
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
-            {/* Language Switcher */}
-            <View style={styles.languageContainer}>
-              <LanguageSwitcher />
-            </View>
-
             {/* Main Content */}
             <View style={styles.contentWrapper}>
+              {/* Logo */}
+              <View style={styles.logoContainer}>
+                <Image
+                  source={require('../../logo-login.png')}
+                  style={styles.logo}
+                  resizeMode="contain"
+                />
+              </View>
+
               {/* Title */}
               <View style={styles.titleContainer}>
                 <Text style={styles.title}>Atharvnarayana</Text>
                 <View style={styles.titleUnderline} />
               </View>
 
-              <Text style={styles.subtitle}>{t('login.title')}</Text>
+              <Text style={styles.subtitle}>Login</Text>
 
               <View style={styles.roleBadge}>
                 <Text style={styles.roleText}>👤 Login as Owner, Driver, or Seller</Text>
@@ -118,26 +120,26 @@ const Login: React.FC = () => {
               {/* Combined Input Card */}
               <View style={styles.inputWrapper}>
                 <Input
-                  label={t('forms.phone')}
+                  label="Phone Number"
                   value={phoneNumber}
                   onChangeText={(text) => {
                     setPhoneNumber(text);
                     setError('');
                   }}
-                  placeholder={t('login.enterPhone')}
+                  placeholder="Enter phone number"
                   keyboardType="phone-pad"
                   editable={!loading}
                   containerStyle={styles.inputContainerStyle}
                 />
 
                 <Input
-                  label={t('forms.password')}
+                  label="Password"
                   value={password}
                   onChangeText={(text) => {
                     setPassword(text);
                     setError('');
                   }}
-                  placeholder={t('login.enterPassword')}
+                  placeholder="Enter password"
                   secureTextEntry
                   editable={!loading}
                   containerStyle={styles.inputContainerStyleLast}
@@ -199,14 +201,20 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'ios' ? 60 : 40,
     paddingBottom: 40,
   },
-  languageContainer: {
-    alignItems: 'flex-end',
-    marginBottom: 20,
-  },
   contentWrapper: {
     flex: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     paddingVertical: 20,
+    paddingTop: 20,
+  },
+  logoContainer: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  logo: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
   },
   titleContainer: {
     alignItems: 'center',

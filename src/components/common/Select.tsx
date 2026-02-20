@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ViewStyle, Modal, StyleProp } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
+import { View, Text, StyleSheet, TouchableOpacity, ViewStyle, Modal, StyleProp, ScrollView, TouchableWithoutFeedback } from 'react-native';
 import { colors } from '../../theme/colors';
 import { spacing, borderRadius, shadows } from '../../theme/spacing';
 import { typography } from '../../theme/typography';
@@ -75,22 +74,31 @@ const Select: React.FC<SelectProps> = ({
                 <Text style={styles.modalClose}>Done</Text>
               </TouchableOpacity>
             </View>
-            <Picker
-              selectedValue={value}
-              onValueChange={(itemValue) => {
-                onChange(itemValue);
-                setShowModal(false);
-              }}
-              style={styles.picker}
-            >
+            <ScrollView style={styles.optionsList} showsVerticalScrollIndicator={false}>
               {options.map((option) => (
-                <Picker.Item
+                <TouchableOpacity
                   key={option.value}
-                  label={option.label}
-                  value={option.value}
-                />
+                  style={[
+                    styles.optionItem,
+                    value === option.value && styles.optionItemActive
+                  ]}
+                  onPress={() => {
+                    onChange(option.value);
+                    setShowModal(false);
+                  }}
+                >
+                  <Text style={[
+                    styles.optionLabel,
+                    value === option.value && styles.optionLabelActive
+                  ]}>
+                    {option.label}
+                  </Text>
+                  {value === option.value && (
+                    <Text style={styles.checkIcon}>✓</Text>
+                  )}
+                </TouchableOpacity>
               ))}
-            </Picker>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -179,8 +187,35 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.semibold,
     color: colors.primary[600],
   },
-  picker: {
-    height: 200,
+  optionsList: {
+    maxHeight: 350,
+    paddingHorizontal: spacing.md,
+  },
+  optionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing.xs,
+  },
+  optionItemActive: {
+    backgroundColor: colors.primary[50],
+  },
+  optionLabel: {
+    fontSize: 16,
+    color: colors.text.primary,
+    fontWeight: '500',
+  },
+  optionLabelActive: {
+    color: colors.primary[600],
+    fontWeight: 'bold',
+  },
+  checkIcon: {
+    fontSize: 18,
+    color: colors.primary[600],
+    fontWeight: 'bold',
   },
 });
 

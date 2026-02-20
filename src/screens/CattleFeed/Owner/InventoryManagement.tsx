@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert, FlatList, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert, FlatList, TouchableOpacity, RefreshControl } from 'react-native';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useOwner } from '../../../contexts/OwnerContext';
@@ -14,6 +14,10 @@ import Button from '../../../components/common/Button';
 import Input from '../../../components/common/Input';
 import Modal from '../../../components/common/Modal';
 import Select from '../../../components/common/Select';
+import ScreenHeader from '../../../components/common/ScreenHeader';
+import { colors } from '../../../theme/colors';
+import { spacing, borderRadius, shadows } from '../../../theme/spacing';
+import { typography } from '../../../theme/typography';
 
 interface InventoryItem {
   _id: string;
@@ -38,6 +42,7 @@ const CattleFeedOwnerInventoryManagement: React.FC = () => {
   const toast = useToast();
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -98,7 +103,13 @@ const CattleFeedOwnerInventoryManagement: React.FC = () => {
       toast.error(err.message || 'Failed to load inventory');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadData();
   };
 
   const validateForm = () => {
@@ -152,6 +163,7 @@ const CattleFeedOwnerInventoryManagement: React.FC = () => {
       }
 
       resetForm();
+      setShowForm(false);
       await loadData();
     } catch (err: any) {
       toast.error(err.message || 'Failed to save inventory item');
@@ -226,93 +238,123 @@ const CattleFeedOwnerInventoryManagement: React.FC = () => {
   });
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Inventory Management</Text>
-        <Button
-          onPress={() => {
-            resetForm();
-            setShowForm(true);
-          }}
-        >
-          + Add Item
-        </Button>
-      </View>
+    <View style={styles.container}>
+      <ScreenHeader
+        title="Inventory"
+        subtitle="Manage stock and pricing"
+        showBackButton
+        rightAction={
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={() => {
+              resetForm();
+              setShowForm(true);
+            }}
+          >
+            <Text style={styles.addButtonIcon}>➕</Text>
+          </TouchableOpacity>
+        }
+      />
 
-      {/* Search and Filter */}
-      <Card style={styles.filterCard}>
-        <Input
-          label="Search"
-          value={searchTerm}
-          onChangeText={setSearchTerm}
-          placeholder="Search by name..."
-        />
-        <Select
-          label="Filter by Category"
-          value={filterCategory}
-          onChange={(value) => setFilterCategory(value as string)}
-          options={[
-            { label: 'All Categories', value: '' },
-            ...availableCategories.filter((cat): cat is string => !!cat).map(cat => ({ label: cat, value: cat })),
-          ]}
-        />
-      </Card>
-
-      {loading ? (
-        <ActivityIndicator size="large" color="#3b82f6" style={styles.loader} />
-      ) : (
-        <Card style={styles.listCard}>
-          {filteredInventory.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>
-                No inventory items found. Add your first item.
-              </Text>
-            </View>
-          ) : (
-            <FlatList
-              data={filteredInventory}
-              keyExtractor={(item) => item._id}
-              scrollEnabled={false}
-              renderItem={({ item }) => (
-                <View style={styles.itemCard}>
-                  <View style={styles.itemInfo}>
-                    <Text style={styles.itemName}>{item.name}</Text>
-                    <Text style={styles.itemCategory}>{item.category || 'N/A'}</Text>
-                    <Text style={styles.itemQuantity}>
-                      {item.quantity || 0} {item.unit || 'units'}
-                    </Text>
-                    <View style={styles.priceRow}>
-                      <Text style={styles.priceLabel}>Wholesale:</Text>
-                      <Text style={styles.priceValue}>₹{item.wholesalePrice || 0}</Text>
-                      <Text style={styles.priceLabel}>Retail:</Text>
-                      <Text style={styles.priceValue}>₹{item.retailPrice || 0}</Text>
-                    </View>
-                    {item.quantity && item.quantity < 50 && (
-                      <Text style={styles.lowStock}>⚠️ Low Stock</Text>
-                    )}
-                  </View>
-                  <View style={styles.itemActions}>
-                    <Button
-                      onPress={() => handleEdit(item)}
-                      variant="secondary"
-                      style={styles.actionButton}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      onPress={() => handleDelete(item._id)}
-                      variant="danger"
-                      style={styles.actionButton}
-                    >
-                      Delete
-                    </Button>
-                  </View>
-                </View>
-              )}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary[500]]} />
+        }
+      >
+        <View style={styles.content}>
+          {/* Search and Filter */}
+          <Card style={styles.filterCard}>
+            <Input
+              label="Search Inventory"
+              value={searchTerm}
+              onChangeText={setSearchTerm}
+              placeholder="Search by product name..."
+              containerStyle={{ marginBottom: spacing.md }}
             />
+            <Select
+              label="Category Filter"
+              value={filterCategory}
+              onChange={(value) => setFilterCategory(value as string)}
+              options={[
+                { label: 'All Categories', value: '' },
+                ...availableCategories.filter((cat): cat is string => !!cat).map(cat => ({ label: cat, value: cat })),
+              ]}
+            />
+          </Card>
+
+          {loading && !refreshing ? (
+            <ActivityIndicator size="large" color={colors.primary[500]} style={styles.loader} />
+          ) : (
+            <View style={styles.listContainer}>
+              <View style={styles.listHeader}>
+                <Text style={styles.listTitle}>
+                  Items ({filteredInventory.length})
+                </Text>
+              </View>
+
+              {filteredInventory.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyEmoji}>📦</Text>
+                  <Text style={styles.emptyText}>
+                    No inventory items found. Add your first item.
+                  </Text>
+                </View>
+              ) : (
+                filteredInventory.map((item) => (
+                  <Card key={item._id} style={styles.itemCard}>
+                    <View style={styles.itemHeader}>
+                      <View style={styles.nameSection}>
+                        <Text style={styles.itemName}>{item.name}</Text>
+                        <Text style={styles.itemCategory}>{item.category || 'N/A'}</Text>
+                      </View>
+                      <View style={[styles.badge, item.quantity && item.quantity < 50 ? styles.badgeError : styles.badgeSuccess]}>
+                        <Text style={[styles.badgeText, item.quantity && item.quantity < 50 ? styles.badgeTextError : styles.badgeTextSuccess]}>
+                          {item.quantity} {item.unit}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.divider} />
+
+                    <View style={styles.pricingRow}>
+                      <View style={styles.priceItem}>
+                        <Text style={styles.priceLabel}>Wholesale</Text>
+                        <Text style={styles.priceValue}>₹{item.wholesalePrice || 0}</Text>
+                      </View>
+                      <View style={styles.priceItem}>
+                        <Text style={styles.priceLabel}>Retail</Text>
+                        <Text style={styles.priceValue}>₹{item.retailPrice || 0}</Text>
+                      </View>
+                      <View style={styles.priceItem}>
+                        <Text style={styles.priceLabel}>Margin</Text>
+                        <Text style={[styles.priceValue, { color: colors.success[600] }]}>
+                          ₹{((item.retailPrice || 0) - (item.wholesalePrice || 0)).toFixed(1)}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.itemActions}>
+                      <TouchableOpacity
+                        style={[styles.actionBtn, styles.editBtn]}
+                        onPress={() => handleEdit(item)}
+                      >
+                        <Text style={styles.editBtnText}>Edit</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.actionBtn, styles.deleteBtn]}
+                        onPress={() => handleDelete(item._id)}
+                      >
+                        <Text style={styles.deleteBtnText}>Delete</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </Card>
+                ))
+              )}
+            </View>
           )}
-        </Card>
-      )}
+        </View>
+      </ScrollView>
 
       {/* Create/Edit Modal */}
       <Modal
@@ -321,9 +363,9 @@ const CattleFeedOwnerInventoryManagement: React.FC = () => {
           setShowForm(false);
           resetForm();
         }}
-        title={editingItem ? 'Edit Inventory Item' : 'Add Inventory Item'}
+        title={editingItem ? 'Edit Item' : 'Add New Item'}
       >
-        <ScrollView>
+        <ScrollView showsVerticalScrollIndicator={false}>
           <Input
             label="Product Name *"
             value={formData.name}
@@ -332,7 +374,7 @@ const CattleFeedOwnerInventoryManagement: React.FC = () => {
               if (errors.name) setErrors({ ...errors, name: '' });
             }}
             error={errors.name}
-            required
+            placeholder="e.g. Premium Cattle Feed"
           />
           <Select
             label="Category *"
@@ -345,7 +387,6 @@ const CattleFeedOwnerInventoryManagement: React.FC = () => {
               { label: 'Select Category', value: '' },
               ...availableCategories.filter((cat): cat is string => !!cat).map(cat => ({ label: cat, value: cat })),
             ]}
-            required
           />
           <View style={styles.formRow}>
             <Input
@@ -358,7 +399,7 @@ const CattleFeedOwnerInventoryManagement: React.FC = () => {
               keyboardType="numeric"
               error={errors.quantity}
               containerStyle={styles.halfInput}
-              required
+              placeholder="0"
             />
             <Select
               label="Unit *"
@@ -366,7 +407,6 @@ const CattleFeedOwnerInventoryManagement: React.FC = () => {
               onChange={(value) => setFormData({ ...formData, unit: value as string })}
               options={units.map(u => ({ label: u, value: u }))}
               containerStyle={styles.halfInput}
-              required
             />
           </View>
           <View style={styles.formRow}>
@@ -380,7 +420,7 @@ const CattleFeedOwnerInventoryManagement: React.FC = () => {
               keyboardType="numeric"
               error={errors.wholesalePrice}
               containerStyle={styles.halfInput}
-              required
+              placeholder="0.00"
             />
             <Input
               label="Retail Price *"
@@ -392,7 +432,7 @@ const CattleFeedOwnerInventoryManagement: React.FC = () => {
               keyboardType="numeric"
               error={errors.retailPrice}
               containerStyle={styles.halfInput}
-              required
+              placeholder="0.00"
             />
           </View>
           <Input
@@ -401,53 +441,11 @@ const CattleFeedOwnerInventoryManagement: React.FC = () => {
             onChangeText={(text) => setFormData({ ...formData, supplier: text })}
             placeholder="Optional"
           />
-          <View style={styles.formRow}>
-            <Input
-              label="Purchase Cost"
-              value={formData.purchaseCost}
-              onChangeText={(text) => setFormData({ ...formData, purchaseCost: text })}
-              keyboardType="numeric"
-              containerStyle={styles.halfInput}
-            />
-            <Input
-              label="Amount Paid"
-              value={formData.amountPaid}
-              onChangeText={(text) => setFormData({ ...formData, amountPaid: text })}
-              keyboardType="numeric"
-              containerStyle={styles.halfInput}
-            />
-          </View>
-          <Select
-            label="Payment Status"
-            value={formData.paymentStatus}
-            onChange={(value) => setFormData({ ...formData, paymentStatus: value as string })}
-            options={[
-              { label: 'Pending', value: 'pending' },
-              { label: 'Partial', value: 'partial' },
-              { label: 'Paid', value: 'paid' },
-            ]}
-          />
-          <View style={styles.formRow}>
-            <Input
-              label="Payment Due Date"
-              value={formData.paymentDueDate}
-              onChangeText={(text) => setFormData({ ...formData, paymentDueDate: text })}
-              placeholder="YYYY-MM-DD"
-              containerStyle={styles.halfInput}
-            />
-            <Input
-              label="Expiry Date"
-              value={formData.expiryDate}
-              onChangeText={(text) => setFormData({ ...formData, expiryDate: text })}
-              placeholder="YYYY-MM-DD"
-              containerStyle={styles.halfInput}
-            />
-          </View>
           <Input
             label="Description"
             value={formData.description}
             onChangeText={(text) => setFormData({ ...formData, description: text })}
-            placeholder="Optional"
+            placeholder="Optional notes about the product"
             multiline
             numberOfLines={3}
           />
@@ -457,7 +455,7 @@ const CattleFeedOwnerInventoryManagement: React.FC = () => {
                 setShowForm(false);
                 resetForm();
               }}
-              variant="secondary"
+              variant="outline"
               style={styles.modalButton}
             >
               Cancel
@@ -468,121 +466,179 @@ const CattleFeedOwnerInventoryManagement: React.FC = () => {
               loading={submitting}
               disabled={submitting}
             >
-              {editingItem ? 'Update' : 'Create'}
+              {editingItem ? 'Update' : 'Save Item'}
             </Button>
           </View>
+          <View style={{ height: spacing.xl }} />
         </ScrollView>
       </Modal>
-    </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#f8fafc',
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#ffffff',
+  content: {
+    padding: spacing.lg,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#111827',
+  addButton: {
+    padding: spacing.sm,
+  },
+  addButtonIcon: {
+    fontSize: 20,
   },
   filterCard: {
-    margin: 16,
-    marginTop: 0,
+    marginBottom: spacing.lg,
+    padding: spacing.lg,
   },
   loader: {
-    marginVertical: 32,
+    marginVertical: spacing.xxl,
   },
-  listCard: {
-    margin: 16,
-    marginTop: 0,
+  listContainer: {
+    marginBottom: spacing.xxl,
   },
-  itemCard: {
+  listHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    marginBottom: spacing.md,
   },
-  itemInfo: {
+  listTitle: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+  },
+  itemCard: {
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  itemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  nameSection: {
     flex: 1,
   },
   itemName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 4,
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
   },
   itemCategory: {
+    fontSize: typography.fontSize.xs,
+    color: colors.text.tertiary,
+    marginTop: 2,
+  },
+  badge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: borderRadius.full,
+  },
+  badgeSuccess: {
+    backgroundColor: colors.success[50],
+  },
+  badgeError: {
+    backgroundColor: colors.error[50],
+  },
+  badgeText: {
     fontSize: 12,
-    color: '#6b7280',
-    marginBottom: 4,
+    fontWeight: typography.fontWeight.bold,
   },
-  itemQuantity: {
-    fontSize: 14,
-    color: '#374151',
-    marginBottom: 4,
+  badgeTextSuccess: {
+    color: colors.success[600],
   },
-  priceRow: {
+  badgeTextError: {
+    color: colors.error[600],
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#f1f5f9',
+    marginVertical: spacing.md,
+  },
+  pricingRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 4,
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  priceItem: {
+    flex: 1,
   },
   priceLabel: {
-    fontSize: 12,
-    color: '#6b7280',
+    fontSize: 10,
+    color: colors.text.tertiary,
+    textTransform: 'uppercase',
+    fontWeight: typography.fontWeight.bold,
+    marginBottom: 2,
   },
   priceValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
-  },
-  lowStock: {
-    fontSize: 12,
-    color: '#dc2626',
-    fontWeight: '600',
-    marginTop: 4,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
   },
   itemActions: {
     flexDirection: 'row',
-    gap: 8,
+    gap: spacing.sm,
   },
-  actionButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+  actionBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+  },
+  editBtn: {
+    backgroundColor: colors.primary[50],
+    borderWidth: 1,
+    borderColor: colors.primary[100],
+  },
+  editBtnText: {
+    color: colors.primary[700],
+    fontSize: 13,
+    fontWeight: typography.fontWeight.bold,
+  },
+  deleteBtn: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: colors.error[100],
+  },
+  deleteBtnText: {
+    color: colors.error[600],
+    fontSize: 13,
+    fontWeight: typography.fontWeight.bold,
   },
   formRow: {
     flexDirection: 'row',
-    gap: 12,
+    gap: spacing.md,
   },
   halfInput: {
     flex: 1,
   },
   modalActions: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 12,
-    marginTop: 24,
+    gap: spacing.md,
+    marginTop: spacing.xl,
   },
   modalButton: {
     flex: 1,
   },
   emptyState: {
     alignItems: 'center',
-    paddingVertical: 32,
+    paddingVertical: spacing.xxl,
+    backgroundColor: 'white',
+    borderRadius: borderRadius.xl,
+    marginTop: spacing.md,
+  },
+  emptyEmoji: {
+    fontSize: 40,
+    marginBottom: spacing.md,
+    opacity: 0.2,
   },
   emptyText: {
-    fontSize: 14,
-    color: '#6b7280',
+    fontSize: typography.fontSize.sm,
+    color: colors.text.tertiary,
     textAlign: 'center',
   },
 });
