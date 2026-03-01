@@ -49,7 +49,11 @@ const CattleFeedOwnerDashboard: React.FC = () => {
   const isLoadingRef = useRef(false);
 
   useEffect(() => {
-    loadStats();
+    let cancelled = false;
+    loadStats().catch(() => {
+      if (!cancelled) setLoading(false);
+    });
+    return () => { cancelled = true; };
   }, [selectedOwnerId]);
 
   const loadStats = async () => {
@@ -60,11 +64,14 @@ const CattleFeedOwnerDashboard: React.FC = () => {
       setError('');
 
       const ownerId = isSuperAdmin ? selectedOwnerId : null;
-      const [inventory, sales, pendingOrdersData] = await Promise.all([
+      const [inventoryRaw, salesRaw, pendingOrdersRaw] = await Promise.all([
         getCattleFeedInventory(ownerId),
         getCattleFeedSales(ownerId),
         getCattleFeedOrders({ ownerId, status: 'pending' }),
       ]);
+      const inventory = Array.isArray(inventoryRaw) ? inventoryRaw : [];
+      const sales = Array.isArray(salesRaw) ? salesRaw : [];
+      const pendingOrdersData = Array.isArray(pendingOrdersRaw) ? pendingOrdersRaw : [];
 
       const totalItems = inventory.length;
       const stockValue = inventory.reduce((sum: number, item: any) => sum + (item.quantity * item.retailPrice), 0);

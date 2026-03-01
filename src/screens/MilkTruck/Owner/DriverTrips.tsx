@@ -190,6 +190,10 @@ const MilkTruckOwnerDriverTrips: React.FC = () => {
                               {dairy.toFixed(2)} L {diff !== 0 && `(${diff > 0 ? '+' : ''}${diff.toFixed(2)})`}
                             </Text>
                           </View>
+                          <View style={styles.bodyItem}>
+                            <Text style={styles.bodyLabel}>Distance Covered</Text>
+                            <Text style={styles.bodyVal}>{(trip.summary?.totalDistance || 0).toFixed(1)} km</Text>
+                          </View>
                         </View>
 
                         <LinearGradient

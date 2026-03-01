@@ -7,21 +7,20 @@
 import { Platform } from 'react-native';
 
 // You can set this via environment variable or change directly here
-const getApiBaseUrl = () => {
-  // For Android emulator, use 10.0.2.2
-  // For iOS simulator, use localhost
-  // For physical device, use your machine's IP (e.g., 'http://192.168.1.100:5000/api')
-
-  if (Platform.OS === 'android') {
-    // Android emulator uses 10.0.2.2 to access localhost
-    return 'https://api.thetrifusion.in/api';
-  } else {
-    // iOS simulator can use localhost
-    return 'https://api.thetrifusion.in/api';
-  }
+const getBaseUrl = () => {
+  return 'https://api.thetrifusion.in';
 };
 
-const API_BASE_URL = getApiBaseUrl();
+const BASE_URL = getBaseUrl();
+const API_BASE_URL = `${BASE_URL}/api`;
 
+// Socket.io server (same host as API, no /api path; change when backend is ready)
+const getSocketUrl = () => {
+  const base = 'https://api.thetrifusion.in';
+  return base;
+};
+
+export const SOCKET_URL = getSocketUrl();
+export { BASE_URL };
 export default API_BASE_URL;
 

@@ -8,6 +8,8 @@ import { colors } from '../../../theme/colors';
 import { spacing, borderRadius, shadows } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
 import { addBMCCollectionEntry, getMilkTruckTrip } from '../../../utils/storage';
+import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
+import Icon from 'react-native-vector-icons/Feather';
 
 interface BMCCollectionProps {
     trip: any;
@@ -23,6 +25,7 @@ const BMCCollection: React.FC<BMCCollectionProps> = ({ trip, route, onComplete }
         fatContent: '',
         snfContent: '',
     });
+    const [selectedImage, setSelectedImage] = useState<any>(null);
     const [loading, setLoading] = useState(false);
 
     // Animation for progress bar
@@ -96,9 +99,41 @@ const BMCCollection: React.FC<BMCCollectionProps> = ({ trip, route, onComplete }
                 fatContent: entry.collectionData.fatContent.toString(),
                 snfContent: entry.collectionData.snfContent.toString(),
             });
+            setSelectedImage(entry.collectionData.image ? { uri: entry.collectionData.image } : null);
         } else {
             setFormData({ milkQuantity: '', fatContent: '', snfContent: '' });
+            setSelectedImage(null);
         }
+    };
+
+    const handlePickImage = () => {
+        Alert.alert(
+            'Add Image',
+            'Capture entry photo from camera or gallery',
+            [
+                {
+                    text: 'Camera',
+                    onPress: () => {
+                        launchCamera({ mediaType: 'photo', quality: 0.7 }, (response) => {
+                            if (response.assets && response.assets.length > 0) {
+                                setSelectedImage(response.assets[0]);
+                            }
+                        });
+                    },
+                },
+                {
+                    text: 'Gallery',
+                    onPress: () => {
+                        launchImageLibrary({ mediaType: 'photo', quality: 0.7 }, (response) => {
+                            if (response.assets && response.assets.length > 0) {
+                                setSelectedImage(response.assets[0]);
+                            }
+                        });
+                    },
+                },
+                { text: 'Cancel', style: 'cancel' },
+            ]
+        );
     };
 
     const handleSubmit = async () => {
@@ -109,17 +144,25 @@ const BMCCollection: React.FC<BMCCollectionProps> = ({ trip, route, onComplete }
 
         setLoading(true);
         try {
-            const collectionEntry = {
-                bmcId: selectedBMCId,
-                milkQuantity: parseFloat(formData.milkQuantity),
-                fatContent: parseFloat(formData.fatContent),
-                snfContent: parseFloat(formData.snfContent),
-            };
+            const fd = new FormData();
+            fd.append('bmcId', selectedBMCId);
+            fd.append('milkQuantity', formData.milkQuantity);
+            fd.append('fatContent', formData.fatContent);
+            fd.append('snfContent', formData.snfContent);
 
-            const updatedTrip = await addBMCCollectionEntry(trip._id || trip.id, collectionEntry);
+            if (selectedImage && selectedImage.uri && !selectedImage.uri.startsWith('http')) {
+                fd.append('image', {
+                    uri: selectedImage.uri,
+                    type: selectedImage.type || 'image/jpeg',
+                    name: selectedImage.fileName || `bmc_entry_${Date.now()}.jpg`,
+                } as any);
+            }
+
+            const updatedTrip = await addBMCCollectionEntry(trip._id || trip.id, fd);
             if (updatedTrip) {
                 setTripData(updatedTrip);
                 setFormData({ milkQuantity: '', fatContent: '', snfContent: '' });
+                setSelectedImage(null);
                 setSelectedBMCId('');
                 Alert.alert('Saved', 'Collection data recorded successfully.');
             }
@@ -223,6 +266,33 @@ const BMCCollection: React.FC<BMCCollectionProps> = ({ trip, route, onComplete }
                             />
                         </View>
                     </View>
+
+                    {/* Image Attachment */}
+                    <TouchableOpacity
+                        style={[styles.imageUploadBox, selectedImage && styles.imageBoxActive]}
+                        onPress={handlePickImage}
+                    >
+                        {selectedImage ? (
+                            <View style={styles.imagePreviewContainer}>
+                                <Animated.Image
+                                    source={{ uri: selectedImage.uri }}
+                                    style={styles.imagePreview}
+                                    resizeMode="cover"
+                                />
+                                <View style={styles.imageOverlay}>
+                                    <Text style={styles.imageEditTxt}>Tap to change photo</Text>
+                                </View>
+                            </View>
+                        ) : (
+                            <View style={styles.uploadPlaceholder}>
+                                <View style={styles.uploadCircle}>
+                                    <Icon name="camera" size={24} color={colors.primary[600]} />
+                                </View>
+                                <Text style={styles.uploadMainTxt}>Attach Entry Slips</Text>
+                                <Text style={styles.uploadSubTxt}>Take a photo of the receipt or tank reading</Text>
+                            </View>
+                        )}
+                    </TouchableOpacity>
 
                     <TouchableOpacity
                         style={styles.actionBtn}
@@ -413,6 +483,66 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: colors.success[600],
         marginTop: 4,
+    },
+    imageUploadBox: {
+        height: 140,
+        backgroundColor: colors.background.tertiary,
+        borderRadius: borderRadius.lg,
+        borderWidth: 2,
+        borderColor: colors.border.light,
+        borderStyle: 'dashed',
+        marginBottom: spacing.xl,
+        overflow: 'hidden',
+    },
+    imageBoxActive: {
+        borderStyle: 'solid',
+        borderColor: colors.primary[300],
+    },
+    uploadPlaceholder: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    uploadCircle: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: colors.primary[50],
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: spacing.xs,
+    },
+    uploadMainTxt: {
+        fontSize: 13,
+        fontWeight: 'bold',
+        color: colors.text.primary,
+    },
+    uploadSubTxt: {
+        fontSize: 10,
+        color: colors.text.tertiary,
+        marginTop: 2,
+    },
+    imagePreviewContainer: {
+        width: '100%',
+        height: '100%',
+    },
+    imagePreview: {
+        width: '100%',
+        height: '100%',
+    },
+    imageOverlay: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        paddingVertical: 6,
+        alignItems: 'center',
+    },
+    imageEditTxt: {
+        color: '#FFFFFF',
+        fontSize: 10,
+        fontWeight: 'bold',
     },
 });
 

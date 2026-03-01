@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert, ActivityIndicator, RefreshControl, TouchableOpacity, Animated, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Alert, ActivityIndicator, RefreshControl, TouchableOpacity, Animated, Dimensions, Platform, PermissionsAndroid } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
+import Geolocation from '@react-native-community/geolocation';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { cattleFeedTruckAPI } from '../../../utils/api';
@@ -10,6 +11,10 @@ import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
 import Input from '../../../components/common/Input';
 import Modal from '../../../components/common/Modal';
+import { useTripSocket } from '../../../hooks/useTripSocket';
+import DriverPathMap, { Coord } from '../../../components/DriverPathMap';
+import { checkGeofenceAndNotify, clearNotifyOwnerThrottle, CollectionPoint } from '../../../utils/notifyOwner';
+import { startBackgroundLocation, stopBackgroundLocation } from '../../../utils/backgroundLocation';
 import { colors } from '../../../theme/colors';
 import { spacing, borderRadius, shadows } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
@@ -43,10 +48,80 @@ const CattleFeedTruckDriverActiveTrip: React.FC = () => {
   const [receiverName, setReceiverName] = useState('');
   const [actualQuantity, setActualQuantity] = useState('');
   const [markingLoading, setMarkingLoading] = useState(false);
+  const [pathCoordinates, setPathCoordinates] = useState<Coord[]>([]);
+  const watchIdRef = useRef<number | null>(null);
+
+  const isOnTrip = !!trip && (trip.status === 'loading' || trip.status === 'in_transit');
+  const { emitLocation } = useTripSocket(trip?._id ?? null, isOnTrip);
 
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
+
+  // Build collection points from delivery entries (for geofence). Use lat/lng when backend provides them.
+  const collectionPoints = (trip?.deliveryEntries ?? [])
+    .filter((e: any) => !e.actualDelivery?.deliveredAt)
+    .map((e: any, i: number) => {
+      const lat = e.latitude ?? e.deliveryPointId?.latitude ?? 0;
+      const lng = e.longitude ?? e.deliveryPointId?.longitude ?? 0;
+      return { id: e._id || `entry-${i}`, latitude: lat, longitude: lng, radiusMeters: 150 } as CollectionPoint;
+    })
+    .filter((p: CollectionPoint) => p.latitude !== 0 || p.longitude !== 0);
+
+  const collectionPointsRef = useRef<CollectionPoint[]>([]);
+  collectionPointsRef.current = collectionPoints;
+
+  // Location tracking only when driver is on trip
+  useEffect(() => {
+    if (!isOnTrip || !trip) {
+      if (watchIdRef.current != null) {
+        Geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      if (trip?._id) clearNotifyOwnerThrottle(trip._id);
+      return;
+    }
+
+    const tripId = trip._id;
+    const watchId = Geolocation.watchPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        setPathCoordinates((prev) => [...prev, { latitude, longitude }]);
+        emitLocation(latitude, longitude);
+        const driverName = trip.driverId?.name || user?.name || 'Driver';
+        checkGeofenceAndNotify(tripId, driverName, latitude, longitude, collectionPointsRef.current);
+      },
+      (err) => console.warn('Trip location watch error:', err),
+      {
+        enableHighAccuracy: true,
+        distanceFilter: 10,
+        interval: 5000,
+        fastestInterval: 2000,
+      }
+    );
+    watchIdRef.current = watchId;
+    return () => {
+      if (watchIdRef.current != null) {
+        Geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      clearNotifyOwnerThrottle(tripId);
+    };
+  }, [isOnTrip, trip?._id]);
+
+  // Background location service – keeps sending location when app closed or screen off
+  useEffect(() => {
+    if (!isOnTrip || !trip?._id) {
+      stopBackgroundLocation();
+      return;
+    }
+
+    startBackgroundLocation(trip._id, 'cattle_feed_truck');
+
+    return () => {
+      stopBackgroundLocation();
+    };
+  }, [isOnTrip, trip?._id]);
 
   useEffect(() => {
     fetchActiveTrip();
@@ -351,6 +426,16 @@ const CattleFeedTruckDriverActiveTrip: React.FC = () => {
           </View>
         </Card>
 
+        {/* Driver path map - only when on trip */}
+        {isOnTrip && (
+          <View style={styles.mapCard}>
+            <Text style={styles.mapTitle}>YOUR ROUTE</Text>
+            <View style={styles.mapWrapper}>
+              <DriverPathMap coordinates={pathCoordinates} followUser />
+            </View>
+          </View>
+        )}
+
         {/* Deliveries Section */}
         <View style={styles.sectionHeader}>
           <View style={styles.sectionIndicator} />
@@ -600,6 +685,24 @@ const styles = StyleSheet.create({
     marginTop: -spacing.xl,
     marginBottom: spacing.xl,
     padding: spacing.lg,
+  },
+  mapCard: {
+    marginBottom: spacing.lg,
+    overflow: 'hidden',
+    borderRadius: borderRadius.lg,
+    backgroundColor: colors.background.secondary,
+  },
+  mapTitle: {
+    fontSize: 11,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.secondary,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.sm,
+  },
+  mapWrapper: {
+    height: 200,
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
   },
   infoGrid: {
     flexDirection: 'row',

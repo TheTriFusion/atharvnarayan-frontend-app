@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, StatusBar, Animated, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, StatusBar, Animated, ActivityIndicator, KeyboardAvoidingView, Modal, Image as RNImage } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import { getMilkTruckTrips, getMilkTruckBMCs, getMilkTruckVehicles, getMilkTruckRoutes, getMilkTruckPricing } from '../../../utils/storage';
 import Card from '../../../components/common/Card';
 import Input from '../../../components/common/Input';
 import ScreenHeader from '../../../components/common/ScreenHeader';
+import DriverPathMap, { Coord } from '../../../components/DriverPathMap';
+import { BASE_URL } from '../../../config/api';
+import { calculateTotalDistance } from '../../../utils/distance';
 import { colors } from '../../../theme/colors';
 import { spacing, borderRadius, shadows } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
@@ -25,6 +28,8 @@ const OwnerTripDetails: React.FC = () => {
     const [basePricePerLiter, setBasePricePerLiter] = useState('50');
     const [fatPricePerPercent, setFatPricePerPercent] = useState('2');
     const [snfPricePerPercent, setSnfPricePerPercent] = useState('1');
+    const [isImageModalVisible, setIsImageModalVisible] = useState(false);
+    const [selectedEntryImage, setSelectedEntryImage] = useState<string | null>(null);
 
     // Animations
     const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -197,6 +202,55 @@ const OwnerTripDetails: React.FC = () => {
                     keyboardShouldPersistTaps="handled"
                 >
                     <Animated.View style={{ opacity: fadeAnim }}>
+                        <Card style={styles.pathCard}>
+                            <View style={styles.pathHeaderRow}>
+                                <View style={styles.pathIconBox}>
+                                    <Text style={styles.pathIconEmoji}>🗺️</Text>
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.pathCardTitle}>Trip Playback History</Text>
+                                    <Text style={styles.pathCardSubtitle}>
+                                        {trip.locationHistory && trip.locationHistory.length >= 2
+                                            ? `${calculateTotalDistance((trip.locationHistory || []).map((p: any) => ({
+                                                latitude: p.latitude ?? p.lat,
+                                                longitude: p.longitude ?? p.lng,
+                                            })).filter((p: Coord) => typeof p.latitude === 'number' && typeof p.longitude === 'number')).toFixed(2)} km route recorded`
+                                            : 'No route data available'
+                                        }
+                                    </Text>
+                                </View>
+                            </View>
+
+                            {(trip.locationHistory && trip.locationHistory.length >= 2) ? (
+                                <TouchableOpacity
+                                    style={styles.viewMapButton}
+                                    activeOpacity={0.8}
+                                    onPress={() => navigation.navigate('MilkTruckOwnerTripMap', {
+                                        locationHistory: trip.locationHistory,
+                                        routeName: tripRoute?.name,
+                                        vehicleReg: vehicle?.registrationNumber,
+                                        tripId: trip._id || trip.id
+                                    })}
+                                >
+                                    <LinearGradient
+                                        colors={[colors.primary[600], colors.primary[700]]}
+                                        style={styles.viewMapGradient}
+                                        start={{ x: 0, y: 0 }}
+                                        end={{ x: 1, y: 0 }}
+                                    >
+                                        <Text style={styles.viewMapText}>View Full Trip Path</Text>
+                                        <Text style={styles.viewMapIcon}>🗺️</Text>
+                                    </LinearGradient>
+                                </TouchableOpacity>
+                            ) : (
+                                <View style={styles.noPathContainer}>
+                                    <Text style={styles.noPathText}>No path recorded for this trip.</Text>
+                                    <View style={styles.hintBox}>
+                                        <Text style={styles.hintText}>💡 Tip: Ensure drivers keep the app active to record route data.</Text>
+                                    </View>
+                                </View>
+                            )}
+                        </Card>
                         {/* Status & Date */}
                         <View style={styles.metaRow}>
                             <View style={styles.statusChip}>
@@ -313,9 +367,29 @@ const OwnerTripDetails: React.FC = () => {
                                         activeOpacity={0.7}
                                     >
                                         <View style={styles.auditHeader}>
-                                            <View>
-                                                <Text style={styles.auditName}>{bmcName}</Text>
-                                                <Text style={styles.auditActionHint}>Tap to view performance analytics 📊</Text>
+                                            <View style={styles.auditHeaderMain}>
+                                                <View>
+                                                    <Text style={styles.auditName}>{bmcName}</Text>
+                                                    <Text style={styles.auditActionHint}>Tap to view performance analytics 📊</Text>
+                                                </View>
+                                                {entry.collectionData?.image && (
+                                                    <TouchableOpacity
+                                                        onPress={(e) => {
+                                                            e.stopPropagation();
+                                                            setSelectedEntryImage(`${BASE_URL}${entry.collectionData.image}`);
+                                                            setIsImageModalVisible(true);
+                                                        }}
+                                                        style={styles.thumbnailContainer}
+                                                    >
+                                                        <RNImage
+                                                            source={{ uri: `${BASE_URL}${entry.collectionData.image}` }}
+                                                            style={styles.thumbnail}
+                                                        />
+                                                        <View style={styles.zoomIconBg}>
+                                                            <Text style={styles.zoomText}>🔍</Text>
+                                                        </View>
+                                                    </TouchableOpacity>
+                                                )}
                                             </View>
                                             <View style={styles.auditStatusBadge}>
                                                 <Text style={styles.verifiedText}>Verified: {verifiedMilk.toFixed(1)}L</Text>
@@ -467,6 +541,34 @@ const OwnerTripDetails: React.FC = () => {
                     </Animated.View>
                 </ScrollView>
             </KeyboardAvoidingView>
+
+            {/* Image Modal */}
+            <Modal
+                visible={isImageModalVisible}
+                transparent={true}
+                onRequestClose={() => setIsImageModalVisible(false)}
+                animationType="fade"
+            >
+                <TouchableOpacity
+                    style={styles.modalOverlay}
+                    activeOpacity={1}
+                    onPress={() => setIsImageModalVisible(false)}
+                >
+                    <View style={styles.modalContent}>
+                        <RNImage
+                            source={{ uri: selectedEntryImage || '' }}
+                            style={styles.fullImage}
+                            resizeMode="contain"
+                        />
+                        <TouchableOpacity
+                            style={styles.closeBtn}
+                            onPress={() => setIsImageModalVisible(false)}
+                        >
+                            <Text style={styles.closeBtnText}>CLOSE</Text>
+                        </TouchableOpacity>
+                    </View>
+                </TouchableOpacity>
+            </Modal>
         </View>
     );
 };
@@ -503,6 +605,84 @@ const styles = StyleSheet.create({
     content: {
         padding: spacing.lg,
         paddingBottom: 40,
+    },
+    pathCard: {
+        marginHorizontal: spacing.lg,
+        marginBottom: spacing.md,
+        overflow: 'hidden',
+        borderRadius: borderRadius.lg,
+    },
+    pathCardTitle: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: colors.primary[900],
+    },
+    pathCardSubtitle: {
+        fontSize: 12,
+        color: colors.text.tertiary,
+        marginTop: 2,
+    },
+    pathHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: spacing.md,
+        gap: spacing.md,
+    },
+    pathIconBox: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: colors.primary[50],
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    pathIconEmoji: {
+        fontSize: 20,
+    },
+    viewMapButton: {
+        margin: spacing.md,
+        marginTop: 0,
+        borderRadius: borderRadius.lg,
+        overflow: 'hidden',
+        ...shadows.sm,
+    },
+    viewMapGradient: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: spacing.md,
+        gap: spacing.sm,
+    },
+    viewMapText: {
+        color: '#FFFFFF',
+        fontWeight: 'bold',
+        fontSize: 14,
+    },
+    viewMapIcon: {
+        fontSize: 16,
+    },
+    noPathContainer: {
+        padding: spacing.md,
+        paddingTop: 0,
+        alignItems: 'center',
+    },
+    hintBox: {
+        backgroundColor: colors.background.tertiary,
+        padding: spacing.sm,
+        borderRadius: borderRadius.md,
+        marginTop: spacing.sm,
+        width: '100%',
+    },
+    hintText: {
+        fontSize: 12,
+        color: colors.text.secondary,
+        fontStyle: 'italic',
+        textAlign: 'center',
+    },
+    noPathText: {
+        fontSize: 14,
+        color: colors.text.secondary,
+        textAlign: 'center',
     },
     metaRow: {
         flexDirection: 'row',
@@ -873,6 +1053,68 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: 'bold',
     },
+    auditHeaderMain: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        width: '100%',
+    },
+    thumbnailContainer: {
+        width: 60,
+        height: 60,
+        borderRadius: 8,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: colors.border.light,
+        backgroundColor: colors.background.tertiary,
+    },
+    thumbnail: {
+        width: '100%',
+        height: '100%',
+    },
+    zoomIconBg: {
+        position: 'absolute',
+        bottom: 0,
+        right: 0,
+        backgroundColor: 'rgba(0,0,0,0.4)',
+        width: 20,
+        height: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderTopLeftRadius: 6,
+    },
+    zoomText: {
+        fontSize: 10,
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.9)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    modalContent: {
+        width: '90%',
+        height: '70%',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    fullImage: {
+        width: '100%',
+        height: '100%',
+    },
+    closeBtn: {
+        marginTop: 20,
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        backgroundColor: 'rgba(255,255,255,0.2)',
+        borderRadius: 20,
+    },
+    closeBtnText: {
+        color: '#FFFFFF',
+        fontWeight: 'bold',
+        fontSize: 12,
+        letterSpacing: 1,
+    }
 });
 
 export default OwnerTripDetails;

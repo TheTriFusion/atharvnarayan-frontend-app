@@ -25,6 +25,8 @@ const DairyConfirmation: React.FC<DairyConfirmationProps> = ({ trip, onConfirm }
         receivedMilk: '',
         receivedFat: '',
         receivedSnf: '',
+        startingKm: '',
+        endingKm: '',
     });
 
     const [variances, setVariances] = useState({
@@ -117,13 +119,19 @@ const DairyConfirmation: React.FC<DairyConfirmationProps> = ({ trip, onConfirm }
 
     useEffect(() => {
         if (dairyVerifiedData) {
-            setFormData({
+            setFormData(prev => ({
+                ...prev,
                 receivedMilk: dairyVerifiedData.milkQuantity?.toString() || '',
                 receivedFat: dairyVerifiedData.fatContent?.toString() || '',
                 receivedSnf: dairyVerifiedData.snfContent?.toString() || '',
-            });
+            }));
         } else {
-            setFormData({ receivedMilk: '', receivedFat: '', receivedSnf: '' });
+            setFormData(prev => ({
+                ...prev,
+                receivedMilk: '',
+                receivedFat: '',
+                receivedSnf: ''
+            }));
         }
     }, [selectedBMCId, dairyVerifiedData]);
 
@@ -224,7 +232,16 @@ const DairyConfirmation: React.FC<DairyConfirmationProps> = ({ trip, onConfirm }
                     collectionTotals: { milk: colMilk, fat: colFatKg, snf: colSnfKg },
                     variance: { milk: totalMilk - colMilk, fat: totalFatKg - colFatKg, snf: totalSnfKg - colSnfKg }
                 },
-                summary: { totalMilk, totalFatLiters: totalFatKg, totalSnfLiters: totalSnfKg, avgFat, avgSnf, completedAt: new Date().toISOString() }
+                summary: {
+                    totalMilk,
+                    totalFatLiters: totalFatKg,
+                    totalSnfLiters: totalSnfKg,
+                    avgFat,
+                    avgSnf,
+                    startingKm: parseFloat(formData.startingKm) || 0,
+                    endingKm: parseFloat(formData.endingKm) || 0,
+                    completedAt: new Date().toISOString()
+                }
             });
             if (result) onConfirm(result);
         } catch (error) {
@@ -357,21 +374,51 @@ const DairyConfirmation: React.FC<DairyConfirmationProps> = ({ trip, onConfirm }
                 </Card>
             )}
 
-            {/* Final Completion Action */}
+            {/* KM Tracking */}
             {allVerified && !selectedBMCId && (
-                <View style={styles.finalBox}>
-                    <Text style={styles.finalTitle}>Ready for Submission</Text>
-                    <Text style={styles.finalSub}>All collection points have been verified by the dairy.</Text>
-                    <TouchableOpacity
-                        style={styles.completeAction}
-                        onPress={() => handleCompleteTrip()}
-                        disabled={loading}
-                    >
-                        <LinearGradient colors={[colors.success[500], colors.success[700]]} style={styles.btnFill}>
-                            <Text style={styles.btnT}>COMPLETE & SUBMIT TRIP</Text>
-                        </LinearGradient>
-                    </TouchableOpacity>
-                </View>
+                <Card variant="elevated" style={styles.formCard}>
+                    <Text style={styles.formSubject}>ODOMETER READINGS (KM)</Text>
+                    <View style={styles.formGrid}>
+                        <View style={styles.formRow}>
+                            <View style={styles.colLabel}><Text style={styles.labelT}>STARTING KM</Text></View>
+                            <View style={styles.colRec}>
+                                <Input
+                                    value={formData.startingKm}
+                                    onChangeText={(t) => setFormData({ ...formData, startingKm: t })}
+                                    placeholder="0"
+                                    keyboardType="numeric"
+                                    containerStyle={styles.compact}
+                                />
+                            </View>
+                        </View>
+                        <View style={styles.formRow}>
+                            <View style={styles.colLabel}><Text style={styles.labelT}>ENDING KM</Text></View>
+                            <View style={styles.colRec}>
+                                <Input
+                                    value={formData.endingKm}
+                                    onChangeText={(t) => setFormData({ ...formData, endingKm: t })}
+                                    placeholder="0"
+                                    keyboardType="numeric"
+                                    containerStyle={styles.compact}
+                                />
+                            </View>
+                        </View>
+                    </View>
+
+                    <View style={styles.finalBox}>
+                        <Text style={styles.finalTitle}>Ready for Submission</Text>
+                        <Text style={styles.finalSub}>Total Distance: {((parseFloat(formData.endingKm) || 0) - (parseFloat(formData.startingKm) || 0)).toFixed(1)} km</Text>
+                        <TouchableOpacity
+                            style={styles.completeAction}
+                            onPress={() => handleCompleteTrip()}
+                            disabled={loading || !formData.startingKm || !formData.endingKm}
+                        >
+                            <LinearGradient colors={[colors.success[500], colors.success[700]]} style={styles.btnFill}>
+                                <Text style={styles.btnT}>COMPLETE & SUBMIT TRIP</Text>
+                            </LinearGradient>
+                        </TouchableOpacity>
+                    </View>
+                </Card>
             )}
         </Animated.View>
     );

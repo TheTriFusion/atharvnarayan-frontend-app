@@ -35,6 +35,7 @@ import MilkTruckOwnerRouteManagement from '../screens/MilkTruck/Owner/RouteManag
 import MilkTruckOwnerPricingManagement from '../screens/MilkTruck/Owner/PricingManagement';
 import MilkTruckOwnerReports from '../screens/MilkTruck/Owner/Reports';
 import MilkTruckOwnerTripDetails from '../screens/MilkTruck/Owner/OwnerTripDetails';
+import MilkTruckOwnerTripMap from '../screens/MilkTruck/Owner/MilkTruckOwnerTripMap';
 
 // Milk Truck Driver Screens
 import MilkTruckDriverDashboard from '../screens/MilkTruck/Driver/DriverDashboard';
@@ -54,6 +55,7 @@ import ManageDriver from '../screens/CattleFeedTruck/Owner/ManageDriver';
 import ManageTrip from '../screens/CattleFeedTruck/Owner/ManageTrip';
 import FeedProductManagement from '../screens/CattleFeedTruck/Owner/FeedProductManagement';
 import TripManagement from '../screens/CattleFeedTruck/Owner/TripManagement';
+import CattleFeedTruckOwnerTripDetail from '../screens/CattleFeedTruck/Owner/TripDetail';
 
 // Cattle Feed Truck Driver Screens
 import CattleFeedTruckDriverDashboard from '../screens/CattleFeedTruck/Driver/Dashboard';
@@ -139,6 +141,7 @@ const AppNavigator: React.FC = () => {
         <Stack.Screen name="MilkTruckOwnerPricing" component={MilkTruckOwnerPricingManagement} />
         <Stack.Screen name="MilkTruckOwnerReports" component={MilkTruckOwnerReports} />
         <Stack.Screen name="MilkTruckOwnerTripDetails" component={MilkTruckOwnerTripDetails} />
+        <Stack.Screen name="MilkTruckOwnerTripMap" component={MilkTruckOwnerTripMap} />
 
         {/* Milk Truck Driver Routes */}
         <Stack.Screen name="MilkTruckDriverDashboard" component={MilkTruckDriverDashboard} />
@@ -158,6 +161,7 @@ const AppNavigator: React.FC = () => {
         <Stack.Screen name="ManageTrip" component={ManageTrip} />
         <Stack.Screen name="FeedProductManagement" component={FeedProductManagement} />
         <Stack.Screen name="TripManagement" component={TripManagement} />
+        <Stack.Screen name="CattleFeedTruckOwnerTripDetail" component={CattleFeedTruckOwnerTripDetail} />
 
         {/* Cattle Feed Truck Driver Routes */}
         <Stack.Screen name="CattleFeedTruckDriverDashboard" component={CattleFeedTruckDriverDashboard} />

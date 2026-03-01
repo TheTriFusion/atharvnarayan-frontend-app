@@ -10,7 +10,8 @@ import { cattleFeedAPI, milkTruckAPI, usersAPI, suppliersAPI, cattleFeedTruckAPI
 export const getCattleFeedInventory = async (ownerId: string | null = null) => {
   try {
     const response = await cattleFeedAPI.getInventory(ownerId);
-    return response.success ? response.data : [];
+    const data = response?.data;
+    return Array.isArray(data) ? data : [];
   } catch (error) {
     console.error('Error fetching inventory:', error);
     return [];
@@ -66,7 +67,8 @@ export const getCattleFeedInventoryItem = async (id: string) => {
 export const getCattleFeedSales = async (ownerId: string | null = null) => {
   try {
     const response = await cattleFeedAPI.getSales(ownerId);
-    return response.success ? response.data : [];
+    const data = response?.data;
+    return Array.isArray(data) ? data : [];
   } catch (error) {
     console.error('Error fetching sales:', error);
     return [];
@@ -203,7 +205,8 @@ export const updateCattleFeedCustomerFromSale = async (sale: any) => {
 export const getCattleFeedOrders = async (params: any = {}) => {
   try {
     const response = await cattleFeedAPI.getOrders(params);
-    return response.success ? response.orders : [];
+    const list = response?.orders ?? response?.data;
+    return Array.isArray(list) ? list : [];
   } catch (error) {
     console.error('Error fetching orders:', error);
     return [];
@@ -620,7 +623,8 @@ export const getMilkTruckOwnerByPhone = async (phoneNumber: string) => {
 export const getMilkTruckDrivers = async (ownerId: string | null = null) => {
   try {
     const response = await usersAPI.getUsers({ role: 'milkTruckDriver', systemType: 'milkTruck' }, ownerId);
-    return response.success ? response.data : [];
+    const data = response?.data;
+    return Array.isArray(data) ? data : [];
   } catch (error) {
     console.error('Error fetching milk truck drivers:', error);
     return [];
@@ -761,7 +765,8 @@ export const getMilkTruckBMCHistory = async (id: string) => {
 export const getMilkTruckVehicles = async (ownerId: string | null = null) => {
   try {
     const response = await milkTruckAPI.getVehicles(ownerId);
-    return response.success ? response.data : [];
+    const data = response?.data;
+    return Array.isArray(data) ? data : [];
   } catch (error) {
     console.error('Error fetching vehicles:', error);
     return [];
@@ -817,7 +822,8 @@ export const getMilkTruckVehicle = async (id: string) => {
 export const getMilkTruckRoutes = async (ownerId: string | null = null) => {
   try {
     const response = await milkTruckAPI.getRoutes(ownerId);
-    return response.success ? response.data : [];
+    const data = response?.data;
+    return Array.isArray(data) ? data : [];
   } catch (error) {
     console.error('Error fetching routes:', error);
     return [];
@@ -873,7 +879,8 @@ export const getMilkTruckRoute = async (id: string) => {
 export const getMilkTruckTrips = async (ownerId: string | null = null) => {
   try {
     const response = await milkTruckAPI.getTrips(ownerId);
-    return response.success ? response.data : [];
+    const data = response?.data;
+    return Array.isArray(data) ? data : [];
   } catch (error) {
     console.error('Error fetching trips:', error);
     return [];

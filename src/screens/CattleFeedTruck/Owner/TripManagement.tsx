@@ -367,11 +367,18 @@ const TripManagement: React.FC = () => {
                         <View style={styles.metaRow}>
                           <Text style={styles.metaText}>📅 {new Date(trip.date || trip.createdAt || '').toLocaleDateString()}</Text>
                           <Text style={styles.metaText}>📍 {trip.deliveryEntries?.length || 0} Drop-offs</Text>
+                          <Text style={styles.metaText}>🛣️ {(trip.summary?.totalKm || trip.tripDetails?.distance || 0).toFixed(1)} km</Text>
                         </View>
                       </View>
 
                       {isExpanded && (
                         <View style={styles.expansionPanel}>
+                          <TouchableOpacity
+                            style={styles.viewPathBtn}
+                            onPress={() => navigation.navigate('CattleFeedTruckOwnerTripDetail', { tripId: trip._id })}
+                          >
+                            <Text style={styles.viewPathBtnText}>View path on map</Text>
+                          </TouchableOpacity>
                           <View style={styles.expansionDivider} />
                           <View style={styles.expandedGrid}>
                             <View style={styles.expandedItem}>
@@ -730,6 +737,19 @@ const styles = StyleSheet.create({
   },
   expansionPanel: {
     marginTop: 16,
+  },
+  viewPathBtn: {
+    alignSelf: 'flex-start',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    backgroundColor: colors.primary[50],
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  viewPathBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.primary[600],
   },
   expansionDivider: {
     height: 1,

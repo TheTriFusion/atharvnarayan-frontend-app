@@ -2,12 +2,15 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Animated, Dimensions } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
+import Geolocation from '@react-native-community/geolocation';
 import { useAuth } from '../../../contexts/AuthContext';
+import { gpsAPI } from '../../../utils/api';
 import { getMilkTruckTrips } from '../../../utils/storage';
 import Card from '../../../components/common/Card';
 import { colors } from '../../../theme/colors';
 import { spacing, borderRadius, shadows } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
+import { startGeneralFleetTracking } from '../../../utils/backgroundLocation';
 
 import ProfileMenu from '../../../components/common/ProfileMenu';
 
@@ -59,6 +62,19 @@ const DriverDashboard: React.FC = () => {
         useCallback(() => {
             fadeAnim.setValue(0);
             loadDashboardData();
+
+            // Start background location service for fleet tracking
+            startGeneralFleetTracking();
+
+            // Send current location to backend immediately on focus
+            Geolocation.getCurrentPosition(
+                (pos) => {
+                    const { latitude, longitude } = pos.coords;
+                    gpsAPI.updateUserLocation(latitude, longitude).catch(() => { });
+                },
+                () => { },
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+            );
         }, [])
     );
 
@@ -126,6 +142,9 @@ const DriverDashboard: React.FC = () => {
                             <View style={styles.tripStatsSection}>
                                 <View style={styles.statChip}>
                                     <Text style={styles.statChipText}>🥛 {(item.summary?.totalMilk || 0).toFixed(0)}L</Text>
+                                </View>
+                                <View style={styles.statChip}>
+                                    <Text style={styles.statChipText}>🛣️ {(item.summary?.totalDistance || 0).toFixed(1)}km</Text>
                                 </View>
                                 <View style={styles.statChip}>
                                     <Text style={styles.statChipText}>📍 {item.bmcEntries?.length || 0} BMCs</Text>

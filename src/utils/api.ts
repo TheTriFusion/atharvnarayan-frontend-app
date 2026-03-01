@@ -38,8 +38,10 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}): Promise<
   const token = await getToken();
   const url = `${API_BASE_URL}${endpoint}`;
 
+  const isFormData = options.body instanceof FormData;
+
   // Create a unique key for this request
-  const requestKey = `${options.method || 'GET'}:${url}:${JSON.stringify(options.body || {})}`;
+  const requestKey = `${options.method || 'GET'}:${url}:${isFormData ? 'formdata' : JSON.stringify(options.body || {})}`;
 
   // If there's a pending request with the same key, return it
   if (pendingRequests.has(requestKey)) {
@@ -47,16 +49,17 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}): Promise<
   }
 
   const { headers: customHeaders, ...restOptions } = options;
+
   const config: RequestInit = {
     ...restOptions,
     headers: {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...(token && { Authorization: `Bearer ${token}` }),
       ...customHeaders,
     },
   };
 
-  if (config.body && typeof config.body === 'object') {
+  if (!isFormData && config.body && typeof config.body === 'object') {
     config.body = JSON.stringify(config.body);
   }
 
@@ -79,11 +82,8 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}): Promise<
       }
 
       if (!response.ok) {
-        // Handle 401 Unauthorized - token expired or invalid
-        if (response.status === 401) {
-          await removeToken();
-          // Navigation will be handled by the app's auth flow
-        }
+        // Don't clear token here - let auth flow (e.g. getCurrentUser on app load) handle expiry.
+        // Clearing on every 401 was causing owners to get logged out when APIs returned 401.
         throw new Error(data.message || `Request failed: ${response.status} ${response.statusText}`);
       }
 
@@ -265,10 +265,15 @@ export const milkTruckAPI = {
     return apiRequest(url);
   },
   getTrip: (id: string) => apiRequest(`/milk-truck/trips/${id}`),
+  sendTripLocation: (tripId: string, latitude: number, longitude: number) =>
+    apiRequest(`/milk-truck/trips/${tripId}/location`, {
+      method: 'POST',
+      body: JSON.stringify({ latitude, longitude }),
+    }),
   createTrip: (data: any) => apiRequest('/milk-truck/trips', { method: 'POST', body: JSON.stringify(data) }),
   updateTrip: (id: string, data: any) => apiRequest(`/milk-truck/trips/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteTrip: (id: string) => apiRequest(`/milk-truck/trips/${id}`, { method: 'DELETE' }),
-  addBMCEntry: (id: string, data: any) => apiRequest(`/milk-truck/trips/${id}/bmc-entry`, { method: 'POST', body: JSON.stringify(data) }),
+  addBMCEntry: (id: string, data: any) => apiRequest(`/milk-truck/trips/${id}/bmc-entry`, { method: 'POST', body: data }),
   getBMCEntry: (tripId: string, bmcId: string) => apiRequest(`/milk-truck/trips/${tripId}/bmc-entry/${bmcId}`),
 
   // Pricing
@@ -367,5 +372,20 @@ export const cattleFeedTruckAPI = {
   addDelivery: (tripId: string, data: any) => apiRequest(`/cattle-feed-truck/trips/${tripId}/deliveries`, { method: 'POST', body: data }),
   updateDelivery: (tripId: string, deliveryId: string, data: any) => apiRequest(`/cattle-feed-truck/trips/${tripId}/deliveries/${deliveryId}`, { method: 'PUT', body: data }),
   deleteDelivery: (tripId: string, deliveryId: string) => apiRequest(`/cattle-feed-truck/trips/${tripId}/deliveries/${deliveryId}`, { method: 'DELETE' }),
+  sendTripLocation: (tripId: string, latitude: number, longitude: number) =>
+    apiRequest(`/cattle-feed-truck/trips/${tripId}/location`, {
+      method: 'POST',
+      body: JSON.stringify({ latitude, longitude }),
+    }),
+};
+
+// GPS Tracking API
+export const gpsAPI = {
+  getFleetStatus: () => apiRequest('/gps/fleet-status'),
+  updateUserLocation: (latitude: number, longitude: number) =>
+    apiRequest('/gps/user-location', {
+      method: 'PUT',
+      body: JSON.stringify({ latitude, longitude }),
+    }),
 };
 

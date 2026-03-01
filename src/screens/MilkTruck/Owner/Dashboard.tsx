@@ -7,6 +7,7 @@ import { useOwner } from '../../../contexts/OwnerContext';
 import { useToast } from '../../../contexts/ToastContext';
 import {
   getMilkTruckTrips,
+  getMilkTruckTrip,
   getMilkTruckBMCs,
   getMilkTruckVehicles,
   getMilkTruckDrivers,
@@ -21,24 +22,34 @@ import ScreenHeader from '../../../components/common/ScreenHeader';
 import OwnerSelector from '../../../components/SuperAdmin/OwnerSelector';
 import Modal from '../../../components/common/Modal';
 import Input from '../../../components/common/Input';
+import FleetMap, { FleetMember } from '../../../components/MilkTruck/Owner/FleetMap';
+import { gpsAPI } from '../../../utils/api';
+import { useOwnerTripSocket } from '../../../hooks/useOwnerTripSocket';
 import { colors } from '../../../theme/colors';
 import { spacing, borderRadius, shadows } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
 
 const MilkTruckOwnerDashboard: React.FC = () => {
-  const { isSuperAdmin } = useAuth();
+  const { isSuperAdmin, user } = useAuth();
   const { selectedOwnerId } = useOwner();
   const navigation = useNavigation<any>();
   const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
-  const [quickActionsExpanded, setQuickActionsExpanded] = useState(true); // Default to expanded for better visibility
+  const [quickActionsExpanded, setQuickActionsExpanded] = useState(false); // Default to closed as requested
+  const [fleetTrackingExpanded, setFleetTrackingExpanded] = useState(false); // Default to closed as requested
+  const [driverOverviewExpanded, setDriverOverviewExpanded] = useState(false); // Default to closed as requested
+  const [tripHistoryExpanded, setTripHistoryExpanded] = useState(false); // Default to closed as requested
 
   // 3D Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
   const quickActionsRotate = useRef(new Animated.Value(0)).current;
-  const quickActionsScale = useRef(new Animated.Value(0)).current; // For staggered entrance
+  const quickActionsScale = useRef(new Animated.Value(0)).current;
+  const fleetTrackingRotate = useRef(new Animated.Value(0)).current;
+  const fleetTrackingScale = useRef(new Animated.Value(0)).current;
+  const driverOverviewRotate = useRef(new Animated.Value(0)).current;
   const driverOverviewScale = useRef(new Animated.Value(1)).current;
+  const tripHistoryRotate = useRef(new Animated.Value(0)).current;
   const notificationsCardScale = useRef(new Animated.Value(1)).current;
   const tripsCardScale = useRef(new Animated.Value(1)).current;
   const [stats, setStats] = useState({
@@ -58,6 +69,42 @@ const MilkTruckOwnerDashboard: React.FC = () => {
   const [bmcs, setBMCs] = useState<any[]>([]);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fleetMembers, setFleetMembers] = useState<FleetMember[]>([]);
+  const [loadingFleet, setLoadingFleet] = useState(false);
+  // Active trip IDs for Socket.io (in_progress / in_transit) so owner receives driver_location
+  const [activeTripIds, setActiveTripIds] = useState<string[]>([]);
+
+  const ownerId = isSuperAdmin ? selectedOwnerId : (user?.id ?? user?._id ?? user?.ownerId ?? null);
+
+  useOwnerTripSocket({
+    activeTripIds,
+    ownerId,
+    enabled: true,
+    onDriverLocation: (lat, lng, driverId) => {
+      // Update specific fleet member location in real-time
+      setFleetMembers(prev => prev.map(member =>
+        (member.id === driverId)
+          ? { ...member, location: { latitude: lat, longitude: lng, updatedAt: new Date().toISOString() } }
+          : member
+      ));
+    },
+    onOwnerNotification: (payload) => {
+      const message =
+        payload.stopId
+          ? `Driver ${payload.driverName} arrived at stop`
+          : `Driver ${payload.driverName} – trip update`;
+      const notif = {
+        id: `owner_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        message,
+        ...payload,
+      };
+      setNotifications((prev) => [notif, ...prev].slice(0, 50));
+      AsyncStorage.getItem('ownerNotifications').then((json) => {
+        const list = json ? JSON.parse(json) : [];
+        AsyncStorage.setItem('ownerNotifications', JSON.stringify([notif, ...list].slice(0, 100)));
+      });
+    },
+  });
 
   useEffect(() => {
     loadAllData();
@@ -137,15 +184,39 @@ const MilkTruckOwnerDashboard: React.FC = () => {
         .sort((a: any, b: any) => new Date(b.endTime || b.createdAt).getTime() - new Date(a.endTime || a.createdAt).getTime());
       setCompletedTrips(completed);
 
+      const activeIds = tripsArray
+        .filter((t: any) => t.status === 'in_progress' || t.status === 'in_transit')
+        .map((t: any) => t._id)
+        .filter(Boolean);
+      setActiveTripIds(activeIds);
+
       setDrivers(driversArray);
       setVehicles(vehiclesArray);
       setRoutes(routesArray);
       setBMCs(bmcsArray);
+
+      // Auto-load fleet status on first load
+      loadFleetStatus();
     } catch (error: any) {
       console.error('Error loading dashboard data:', error);
       toast.error('Error loading dashboard data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadFleetStatus = async () => {
+    if (!ownerId) return;
+    try {
+      setLoadingFleet(true);
+      const response = await gpsAPI.getFleetStatus();
+      if (response.success) {
+        setFleetMembers(response.data);
+      }
+    } catch (error) {
+      console.error('Error loading fleet status:', error);
+    } finally {
+      setLoadingFleet(false);
     }
   };
 
@@ -356,7 +427,27 @@ const MilkTruckOwnerDashboard: React.FC = () => {
             ]}
           >
             <Card variant="elevated" style={styles.notificationsCard3D}>
-              <View style={styles.notificationsHeader}>
+              <TouchableOpacity
+                style={styles.accordionHeader}
+                onPress={() => {
+                  const toValue = fleetTrackingExpanded ? 0 : 1;
+                  Animated.parallel([
+                    Animated.spring(fleetTrackingRotate, {
+                      toValue,
+                      tension: 100,
+                      friction: 8,
+                      useNativeDriver: true,
+                    }),
+                    Animated.timing(fleetTrackingScale, {
+                      toValue,
+                      duration: 400,
+                      useNativeDriver: true,
+                    })
+                  ]).start();
+                  setFleetTrackingExpanded(!fleetTrackingExpanded);
+                }}
+                activeOpacity={0.7}
+              >
                 <View style={styles.sectionTitleContainer}>
                   <LinearGradient
                     colors={['#3B82F6', '#2563EB']}
@@ -368,105 +459,110 @@ const MilkTruckOwnerDashboard: React.FC = () => {
                   </LinearGradient>
                   <Text style={styles.sectionTitle}>Live Fleet Tracking</Text>
                 </View>
-                {notifications.length > 0 && (
-                  <TouchableOpacity onPress={clearNotifications} style={styles.clearBtn}>
-                    <Text style={styles.clearBtnText}>Clear</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              {/* Mock Map UI */}
-              <View style={styles.mapPlaceholderWrapper}>
-                <LinearGradient
-                  colors={['#E0F2FE', '#F0F9FF']}
-                  style={styles.mockMap}
+                <Animated.View
+                  style={[
+                    styles.accordionIconWrapper,
+                    {
+                      transform: [
+                        {
+                          rotate: fleetTrackingRotate.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: ['0deg', '180deg'],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
                 >
-                  {/* Grid Lines */}
-                  {[...Array(5)].map((_, i) => (
-                    <View key={`v-${i}`} style={[styles.mapGridLineV, { left: `${(i + 1) * 20}%` }]} />
-                  ))}
-                  {[...Array(4)].map((_, i) => (
-                    <View key={`h-${i}`} style={[styles.mapGridLineH, { top: `${(i + 1) * 20}%` }]} />
-                  ))}
+                  <Text style={styles.accordionIcon}>▼</Text>
+                </Animated.View>
+              </TouchableOpacity>
 
-                  {/* Route Paths */}
-                  <View style={styles.mapRouteLine} />
-
-                  {/* Active Trucks / Points */}
-                  <View style={[styles.mapPoint, { top: '30%', left: '40%' }]}>
-                    <View style={styles.pingAnimation} />
-                    <View style={styles.pointDot} />
-                    <View style={styles.pointLabel}>
-                      <Text style={styles.pointLabelText}>Mh1987</Text>
-                    </View>
+              {fleetTrackingExpanded && (
+                <View style={styles.accordionContent}>
+                  <View style={styles.flexHeaderRightCompact}>
+                    {loadingFleet && <ActivityIndicator size="small" color={colors.primary[500]} style={{ marginRight: 8 }} />}
+                    <TouchableOpacity onPress={loadFleetStatus} style={styles.getLocationBtn}>
+                      <Text style={styles.getLocationText}>Get Location</Text>
+                    </TouchableOpacity>
                   </View>
 
-                  <View style={[styles.mapPoint, { top: '60%', left: '70%', opacity: 0.6 }]}>
-                    <View style={[styles.pointDot, { backgroundColor: colors.primary[400] }]} />
-                    <View style={styles.pointLabel}>
-                      <Text style={styles.pointLabelText}>Mh4567</Text>
-                    </View>
+                  {/* Live map - shows all drivers and their trip status */}
+                  <View style={styles.mapPlaceholderWrapper}>
+                    <FleetMap
+                      members={fleetMembers}
+                      style={styles.liveFleetMap}
+                    />
                   </View>
 
-                  <View style={styles.mapOverlayIcon}>
-                    <Text style={styles.mapOverlayEmoji}>📍</Text>
-                  </View>
-                </LinearGradient>
-              </View>
+                  <Text style={styles.realTimeUpdateLabel}>RECENT ACTIVITY</Text>
 
-              <Text style={styles.realTimeUpdateLabel}>RECENT ACTIVITY</Text>
-
-              {notifications.length > 0 ? (
-                <ScrollView style={styles.notificationsList} nestedScrollEnabled>
-                  {notifications.map((notif: any) => (
-                    <View key={notif.id} style={styles.notificationItem}>
-                      <View style={styles.notifHeaderMain}>
-                        <View style={styles.notifStatusPulse} />
-                        <Text style={styles.notificationMessage}>{notif.message}</Text>
-                      </View>
-
-                      {/* Handle notification format */}
-                      {(notif.totals || notif.summary) && (
-                        <View style={styles.notificationDetails}>
-                          <View style={styles.notifStatRow}>
-                            <View style={styles.notifStat}>
-                              <Text style={styles.notifStatLabel}>TOTAL MILK</Text>
-                              <Text style={styles.notifStatValue}>
-                                {(notif.totals?.totalMilk || notif.summary?.totalMilk)?.toFixed(2) || '0.00'}L
-                              </Text>
-                            </View>
-                            <View style={styles.notifStat}>
-                              <Text style={styles.notifStatLabel}>EXPENSES</Text>
-                              <Text style={styles.notifStatValue}>
-                                ₹{(notif.totals?.totalExpenses || notif.summary?.totalExpenses)?.toFixed(2) || '0.00'}
-                              </Text>
-                            </View>
-                            {notif.variance && (
-                              <View style={styles.notifStat}>
-                                <Text style={styles.notifStatLabel}>VARIANCE</Text>
-                                <Text style={[
-                                  styles.notifStatValue,
-                                  { color: notif.variance.milk < 0 ? colors.error[600] : colors.success[600] }
-                                ]}>
-                                  {notif.variance.milk > 0 ? '+' : ''}{notif.variance.milk?.toFixed(2) || '0.00'}L
-                                </Text>
-                              </View>
-                            )}
+                  {notifications.length > 0 ? (
+                    <ScrollView style={styles.notificationsList} nestedScrollEnabled>
+                      {notifications.map((notif: any) => (
+                        <View key={notif.id} style={[
+                          styles.notificationItem,
+                          notif.type === 'arrival' && { borderLeftColor: colors.success[500], borderLeftWidth: 4 }
+                        ]}>
+                          <View style={styles.notifHeaderMain}>
+                            <View style={[
+                              styles.notifStatusPulse,
+                              { backgroundColor: notif.type === 'arrival' ? colors.success[500] : colors.primary[500] }
+                            ]} />
+                            <Text style={styles.notificationMessage}>
+                              {notif.type === 'arrival' ? '🏁 ' : '📍 '}
+                              {notif.message}
+                            </Text>
+                            <Text style={styles.notificationTime}>
+                              {new Date(notif.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </Text>
                           </View>
-                        </View>
-                      )}
 
-                      <Text style={styles.notificationTime}>
-                        {new Date(notif.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {/* Handle notification format */}
+                          {(notif.totals || notif.summary) && (
+                            <View style={styles.notificationDetails}>
+                              <View style={styles.notifStatRow}>
+                                <View style={styles.notifStat}>
+                                  <Text style={styles.notifStatLabel}>TOTAL MILK</Text>
+                                  <Text style={styles.notifStatValue}>
+                                    🍼 {(notif.totals?.totalMilk || notif.summary?.totalMilk)?.toFixed(2) || '0.00'}L
+                                  </Text>
+                                </View>
+                                <View style={styles.notifStat}>
+                                  <Text style={styles.notifStatLabel}>EXPENSES</Text>
+                                  <Text style={styles.notifStatValue}>
+                                    💰 ₹{(notif.totals?.totalExpenses || notif.summary?.totalExpenses)?.toFixed(2) || '0.00'}
+                                  </Text>
+                                </View>
+                                {notif.variance && (
+                                  <View style={styles.notifStat}>
+                                    <Text style={styles.notifStatLabel}>VARIANCE</Text>
+                                    <Text style={[
+                                      styles.notifStatValue,
+                                      { color: notif.variance.milk < 0 ? colors.error[600] : colors.success[600] }
+                                    ]}>
+                                      📈 {notif.variance.milk > 0 ? '+' : ''}{notif.variance.milk?.toFixed(2) || '0.00'}L
+                                    </Text>
+                                  </View>
+                                )}
+                              </View>
+                            </View>
+                          )}
+                        </View>
+                      ))}
+                    </ScrollView>
+                  ) : (
+                    <View style={styles.emptyNotifications}>
+                      <Text style={styles.emptyNotificationsText}>
+                        Awaiting live updates from BMC network...
                       </Text>
                     </View>
-                  ))}
-                </ScrollView>
-              ) : (
-                <View style={styles.emptyNotifications}>
-                  <Text style={styles.emptyNotificationsText}>
-                    Awaiting live updates from BMC network...
-                  </Text>
+                  )}
+                  {notifications.length > 0 && (
+                    <TouchableOpacity onPress={clearNotifications} style={styles.clearBtnAltCompact}>
+                      <Text style={styles.clearBtnTextCompact}>Clear Notifications</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               )}
             </Card>
@@ -481,98 +577,131 @@ const MilkTruckOwnerDashboard: React.FC = () => {
                   transform: [
                     { translateY: slideAnim },
                     { scale: driverOverviewScale },
-                    {
-                      rotateY: driverOverviewScale.interpolate({
-                        inputRange: [0.95, 1],
-                        outputRange: ['-2deg', '0deg'],
-                      }),
-                    },
                   ],
                 },
               ]}
             >
               <Card variant="elevated" style={styles.driverOverviewCard3D}>
-                <View style={styles.sectionTitleContainer}>
-                  <LinearGradient
-                    colors={['#8B5CF6', '#7C3AED']}
-                    style={styles.sectionIconTitle}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
+                <TouchableOpacity
+                  style={styles.accordionHeader}
+                  onPress={() => {
+                    const toValue = driverOverviewExpanded ? 0 : 1;
+                    Animated.parallel([
+                      Animated.spring(driverOverviewRotate, {
+                        toValue,
+                        tension: 100,
+                        friction: 8,
+                        useNativeDriver: true,
+                      }),
+                    ]).start();
+                    setDriverOverviewExpanded(!driverOverviewExpanded);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.sectionTitleContainer}>
+                    <LinearGradient
+                      colors={['#8B5CF6', '#7C3AED']}
+                      style={styles.sectionIconTitle}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                    >
+                      <Text style={styles.sectionIconEmoji}>👥</Text>
+                    </LinearGradient>
+                    <Text style={styles.sectionTitle}>Driver Overview</Text>
+                  </View>
+                  <Animated.View
+                    style={[
+                      styles.accordionIconWrapper,
+                      {
+                        transform: [
+                          {
+                            rotate: driverOverviewRotate.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: ['0deg', '180deg'],
+                            }),
+                          },
+                        ],
+                      },
+                    ]}
                   >
-                    <Text style={styles.sectionIconEmoji}>👥</Text>
-                  </LinearGradient>
-                  <Text style={styles.sectionTitle}>Driver Overview</Text>
-                </View>
-                <View style={styles.driversGrid}>
-                  {drivers.map((driver) => {
-                    const driverTrips = completedTrips.filter((t: any) => {
-                      const tripDriverId = t.driverId?._id || t.driverId?.id || t.driverId;
-                      const driverId = driver._id || driver.id;
-                      return tripDriverId === driverId;
-                    });
-                    const activeTrips = completedTrips.filter((t: any) => {
-                      const tripDriverId = t.driverId?._id || t.driverId?.id || t.driverId;
-                      const driverId = driver._id || driver.id;
-                      return tripDriverId === driverId && (t.status === 'in_progress' || t.status === 'in_transit');
-                    });
-                    const totalTrips = driverTrips.length;
-                    const completedCount = driverTrips.filter((t: any) => t.status === 'completed').length;
+                    <Text style={styles.accordionIcon}>▼</Text>
+                  </Animated.View>
+                </TouchableOpacity>
 
-                    return (
-                      <Animated.View
-                        key={driver._id || driver.id}
-                        style={styles.driverCardContainer}
-                      >
-                        <TouchableOpacity
-                          style={styles.driverCard3D}
-                          activeOpacity={0.9}
-                          onPress={() => handleDriverClick(driver._id || driver.id)}
-                        >
-                          <View style={styles.driverCardHeader}>
-                            <View style={styles.avatarContainer}>
-                              <Text style={styles.avatarText}>
-                                {driver.name ? driver.name.split(' ').map((n: any) => n[0]).join('').toUpperCase().substring(0, 2) : 'D'}
-                              </Text>
-                            </View>
-                            <View style={styles.driverInfo}>
-                              <Text style={styles.driverName} numberOfLines={1}>{driver.name}</Text>
-                              <View style={styles.phoneContainer}>
-                                <Text style={styles.phoneIcon}>📞</Text>
-                                <Text style={styles.driverPhone}>{driver.phoneNumber || 'N/A'}</Text>
+                {driverOverviewExpanded && (
+                  <View style={styles.accordionContent}>
+                    <View style={styles.driversGrid}>
+                      {drivers.map((driver) => {
+                        const driverTrips = completedTrips.filter((t: any) => {
+                          const tripDriverId = t.driverId?._id || t.driverId?.id || t.driverId;
+                          const driverId = driver._id || driver.id;
+                          return tripDriverId === driverId;
+                        });
+                        const activeTripsList = completedTrips.filter((t: any) => {
+                          const tripDriverId = t.driverId?._id || t.driverId?.id || t.driverId;
+                          const driverId = driver._id || driver.id;
+                          return tripDriverId === driverId && (t.status === 'in_progress' || t.status === 'in_transit');
+                        });
+                        const totalTrips = driverTrips.length;
+                        const completedCount = driverTrips.filter((t: any) => t.status === 'completed').length;
+
+                        return (
+                          <Animated.View
+                            key={driver._id || driver.id}
+                            style={styles.driverCardContainer}
+                          >
+                            <TouchableOpacity
+                              style={styles.driverCard3D}
+                              activeOpacity={0.9}
+                              onPress={() => handleDriverClick(driver._id || driver.id)}
+                            >
+                              <View style={styles.driverCardHeader}>
+                                <View style={styles.avatarContainer}>
+                                  <Text style={styles.avatarText}>
+                                    {driver.name ? driver.name.split(' ').map((n: any) => n[0]).join('').toUpperCase().substring(0, 2) : 'D'}
+                                  </Text>
+                                </View>
+                                <View style={styles.driverInfo}>
+                                  <Text style={styles.driverName} numberOfLines={1}>{driver.name}</Text>
+                                  <View style={styles.phoneContainer}>
+                                    <Text style={styles.phoneIcon}>📞</Text>
+                                    <Text style={styles.driverPhone}>{driver.phoneNumber || 'N/A'}</Text>
+                                  </View>
+                                </View>
+                                <View style={styles.viewBadge}>
+                                  <Text style={styles.viewBadgeText}>Details</Text>
+                                </View>
                               </View>
-                            </View>
-                            <View style={styles.viewBadge}>
-                              <Text style={styles.viewBadgeText}>Details</Text>
-                            </View>
-                          </View>
-                          <View style={styles.driverStats}>
-                            <View style={styles.driverStatItem}>
-                              <View style={[styles.statIconBox, { backgroundColor: colors.primary[50] }]}>
-                                <Text style={styles.statIconMini}>📊</Text>
+                              <View style={styles.driverStats}>
+                                <View style={styles.driverStatItem}>
+                                  <View style={[styles.statIconBox, { backgroundColor: colors.primary[50] }]}>
+                                    <Text style={styles.statIconMini}>📊</Text>
+                                  </View>
+                                  <Text style={[styles.driverStatValue, { color: colors.primary[700] }]}>{totalTrips}</Text>
+                                  <Text style={styles.driverStatLabel}>Total</Text>
+                                </View>
+                                <View style={styles.driverStatItem}>
+                                  <View style={[styles.statIconBox, { backgroundColor: colors.success[50] }]}>
+                                    <Text style={styles.statIconMini}>✅</Text>
+                                  </View>
+                                  <Text style={[styles.driverStatValue, { color: colors.success[700] }]}>{completedCount}</Text>
+                                  <Text style={styles.driverStatLabel}>Done</Text>
+                                </View>
+                                <View style={styles.driverStatItem}>
+                                  <View style={[styles.statIconBox, { backgroundColor: colors.warning[50] }]}>
+                                    <Text style={styles.statIconMini}>⏳</Text>
+                                  </View>
+                                  <Text style={[styles.driverStatValue, { color: colors.warning[700] }]}>{activeTripsList.length}</Text>
+                                  <Text style={styles.driverStatLabel}>Active</Text>
+                                </View>
                               </View>
-                              <Text style={[styles.driverStatValue, { color: colors.primary[700] }]}>{totalTrips}</Text>
-                              <Text style={styles.driverStatLabel}>Total</Text>
-                            </View>
-                            <View style={styles.driverStatItem}>
-                              <View style={[styles.statIconBox, { backgroundColor: colors.success[50] }]}>
-                                <Text style={styles.statIconMini}>✅</Text>
-                              </View>
-                              <Text style={[styles.driverStatValue, { color: colors.success[700] }]}>{completedCount}</Text>
-                              <Text style={styles.driverStatLabel}>Done</Text>
-                            </View>
-                            <View style={styles.driverStatItem}>
-                              <View style={[styles.statIconBox, { backgroundColor: colors.warning[50] }]}>
-                                <Text style={styles.statIconMini}>⏳</Text>
-                              </View>
-                              <Text style={[styles.driverStatValue, { color: colors.warning[700] }]}>{activeTrips.length}</Text>
-                              <Text style={styles.driverStatLabel}>Active</Text>
-                            </View>
-                          </View>
-                        </TouchableOpacity>
-                      </Animated.View>
-                    );
-                  })}
-                </View>
+                            </TouchableOpacity>
+                          </Animated.View>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
               </Card>
             </Animated.View>
           )}
@@ -591,95 +720,144 @@ const MilkTruckOwnerDashboard: React.FC = () => {
               ]}
             >
               <Card variant="elevated" style={styles.tripsCard3D}>
-                <Text style={styles.sectionTitle}>Trip Completed History</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View>
-                    {/* Table Header */}
-                    <View style={styles.tableHeader}>
-                      <Text style={[styles.tableHeaderText, { width: 100 }]}>Date</Text>
-                      <Text style={[styles.tableHeaderText, { width: 80 }]}>Trip ID</Text>
-                      <Text style={[styles.tableHeaderText, { width: 120 }]}>Route / Vehicle</Text>
-                      <Text style={[styles.tableHeaderText, { width: 80 }]}>Collected</Text>
-                      <Text style={[styles.tableHeaderText, { width: 80 }]}>Dairy Rec.</Text>
-                      <Text style={[styles.tableHeaderText, { width: 80 }]}>Variance</Text>
-                      <Text style={[styles.tableHeaderText, { width: 70 }]}>BMCs</Text>
-                      <Text style={[styles.tableHeaderText, { width: 120 }]}>Actions</Text>
-                    </View>
-                    {/* Table Rows */}
-                    {completedTrips.map((trip: any) => {
-                      const vehicleReg = trip.vehicleId?.registrationNumber || vehicles.find((v: any) => (v._id || v.id) === (trip.vehicleId?._id || trip.vehicleId?.id || trip.vehicleId))?.registrationNumber || 'N/A';
-                      const routeName = trip.routeId?.name || routes.find((r: any) => (r._id || r.id) === (trip.routeId?._id || trip.routeId?.id || trip.routeId))?.name || 'N/A';
-
-                      const collected = trip.dairyConfirmation?.collectionTotals?.milk || trip.summary?.totalMilk || 0;
-                      const dairy = trip.dairyConfirmation?.totalMilkQuantity || trip.summary?.totalMilk || 0;
-                      const diff = trip.dairyConfirmation?.variance?.milk || (dairy - collected);
-                      const bmcCount = trip.bmcEntries?.length || 0;
-                      const tripId = trip._id || trip.id || `trip-${Math.random()}`;
-
-                      return (
-                        <View key={tripId} style={styles.tableRow}>
-                          <View style={[styles.tableCell, { width: 100 }]}>
-                            <Text style={styles.tableCellText}>
-                              {new Date(trip.endTime || trip.startTime || trip.createdAt).toLocaleDateString()}
-                            </Text>
-                            <Text style={styles.tableCellSubText}>
-                              {new Date(trip.endTime || trip.startTime || trip.createdAt).toLocaleTimeString()}
-                            </Text>
-                          </View>
-                          <View style={[styles.tableCell, { width: 80 }]}>
-                            <Text style={[styles.tableCellText, styles.monoText]}>
-                              #{tripId ? tripId.toString().substring(tripId.toString().length - 6) : 'N/A'}
-                            </Text>
-                          </View>
-                          <View style={[styles.tableCell, { width: 120 }]}>
-                            <Text style={[styles.tableCellText, styles.boldText]}>{routeName}</Text>
-                            <Text style={styles.tableCellSubText}>{vehicleReg}</Text>
-                          </View>
-                          <View style={[styles.tableCell, { width: 80 }]}>
-                            <Text style={[styles.tableCellText, styles.boldText]}>
-                              {collected.toFixed(2)} L
-                            </Text>
-                          </View>
-                          <View style={[styles.tableCell, { width: 80 }]}>
-                            <Text style={[styles.tableCellText, styles.boldText]}>
-                              {dairy.toFixed(2)} L
-                            </Text>
-                          </View>
-                          <View style={[styles.tableCell, { width: 80 }]}>
-                            <Text style={[
-                              styles.tableCellText,
-                              styles.boldText,
-                              { color: diff < 0 ? colors.error[600] : diff > 0 ? colors.success[600] : colors.text.tertiary }
-                            ]}>
-                              {diff > 0 ? '+' : ''}{diff !== 0 ? diff.toFixed(2) : '-'} L
-                            </Text>
-                          </View>
-                          <View style={[styles.tableCell, { width: 70 }]}>
-                            <Text style={styles.tableCellText}>
-                              {bmcCount} BMC{bmcCount !== 1 ? 's' : ''}
-                            </Text>
-                          </View>
-                          <View style={[styles.tableCell, styles.actionsCell, { width: 120 }]}>
-                            <Button
-                              onPress={() => navigation.navigate('MilkTruckOwnerTripDetails', { tripId })}
-                              variant="outline"
-                              size="sm"
-                              style={styles.viewButton}
-                            >
-                              View
-                            </Button>
-                            <TouchableOpacity
-                              onPress={() => setDeleteConfirm(tripId)}
-                              style={[styles.deleteButton, { borderColor: colors.error[600] }]}
-                            >
-                              <Text style={{ color: colors.error[600], fontSize: typography.fontSize.xs }}>Delete</Text>
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                      );
-                    })}
+                <TouchableOpacity
+                  style={styles.accordionHeader}
+                  onPress={() => {
+                    const toValue = tripHistoryExpanded ? 0 : 1;
+                    Animated.parallel([
+                      Animated.spring(tripHistoryRotate, {
+                        toValue,
+                        tension: 100,
+                        friction: 8,
+                        useNativeDriver: true,
+                      }),
+                    ]).start();
+                    setTripHistoryExpanded(!tripHistoryExpanded);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.sectionTitleContainer}>
+                    <LinearGradient
+                      colors={['#10B981', '#059669']}
+                      style={styles.sectionIconTitle}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                    >
+                      <Text style={styles.sectionIconEmoji}>📜</Text>
+                    </LinearGradient>
+                    <Text style={styles.sectionTitle}>Trip Completed History</Text>
                   </View>
-                </ScrollView>
+                  <Animated.View
+                    style={[
+                      styles.accordionIconWrapper,
+                      {
+                        transform: [
+                          {
+                            rotate: tripHistoryRotate.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: ['0deg', '180deg'],
+                            }),
+                          },
+                        ],
+                      },
+                    ]}
+                  >
+                    <Text style={styles.accordionIcon}>▼</Text>
+                  </Animated.View>
+                </TouchableOpacity>
+
+                {tripHistoryExpanded && (
+                  <View style={styles.accordionContent}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      <View>
+                        {/* Table Header */}
+                        <View style={styles.tableHeader}>
+                          <Text style={[styles.tableHeaderText, { width: 100 }]}>Date</Text>
+                          <Text style={[styles.tableHeaderText, { width: 80 }]}>Trip ID</Text>
+                          <Text style={[styles.tableHeaderText, { width: 120 }]}>Route / Vehicle</Text>
+                          <Text style={[styles.tableHeaderText, { width: 80 }]}>Collected</Text>
+                          <Text style={[styles.tableHeaderText, { width: 80 }]}>Dairy Rec.</Text>
+                          <Text style={[styles.tableHeaderText, { width: 80 }]}>Variance</Text>
+                          <Text style={[styles.tableHeaderText, { width: 70 }]}>BMCs</Text>
+                          <Text style={[styles.tableHeaderText, { width: 120 }]}>Actions</Text>
+                        </View>
+                        {/* Table Rows */}
+                        {completedTrips.map((trip: any) => {
+                          const vehicleReg = trip.vehicleId?.registrationNumber || vehicles.find((v: any) => (v._id || v.id) === (trip.vehicleId?._id || trip.vehicleId?.id || trip.vehicleId))?.registrationNumber || 'N/A';
+                          const routeName = trip.routeId?.name || routes.find((r: any) => (r._id || r.id) === (trip.routeId?._id || trip.routeId?.id || trip.routeId))?.name || 'N/A';
+
+                          const collected = trip.dairyConfirmation?.collectionTotals?.milk || trip.summary?.totalMilk || 0;
+                          const dairy = trip.dairyConfirmation?.totalMilkQuantity || trip.summary?.totalMilk || 0;
+                          const diff = trip.dairyConfirmation?.variance?.milk || (dairy - collected);
+                          const bmcCount = trip.bmcEntries?.length || 0;
+                          const tripId = trip._id || trip.id || `trip-${Math.random()}`;
+
+                          return (
+                            <View key={tripId} style={styles.tableRow}>
+                              <View style={[styles.tableCell, { width: 100 }]}>
+                                <Text style={styles.tableCellText}>
+                                  {new Date(trip.endTime || trip.startTime || trip.createdAt).toLocaleDateString()}
+                                </Text>
+                                <Text style={styles.tableCellSubText}>
+                                  {new Date(trip.endTime || trip.startTime || trip.createdAt).toLocaleTimeString()}
+                                </Text>
+                              </View>
+                              <View style={[styles.tableCell, { width: 80 }]}>
+                                <Text style={[styles.tableCellText, styles.monoText]}>
+                                  #{tripId ? tripId.toString().substring(tripId.toString().length - 6) : 'N/A'}
+                                </Text>
+                              </View>
+                              <View style={[styles.tableCell, { width: 120 }]}>
+                                <Text style={[styles.tableCellText, styles.boldText]}>{routeName}</Text>
+                                <Text style={styles.tableCellSubText}>{vehicleReg}</Text>
+                              </View>
+                              <View style={[styles.tableCell, { width: 80 }]}>
+                                <Text style={[styles.tableCellText, styles.boldText]}>
+                                  {collected.toFixed(2)} L
+                                </Text>
+                              </View>
+                              <View style={[styles.tableCell, { width: 80 }]}>
+                                <Text style={[styles.tableCellText, styles.boldText]}>
+                                  {dairy.toFixed(2)} L
+                                </Text>
+                              </View>
+                              <View style={[styles.tableCell, { width: 80 }]}>
+                                <Text style={[
+                                  styles.tableCellText,
+                                  styles.boldText,
+                                  { color: diff < 0 ? colors.error[600] : diff > 0 ? colors.success[600] : colors.text.tertiary }
+                                ]}>
+                                  {diff > 0 ? '+' : ''}{diff !== 0 ? diff.toFixed(2) : '-'} L
+                                </Text>
+                              </View>
+                              <View style={[styles.tableCell, { width: 70 }]}>
+                                <Text style={styles.tableCellText}>
+                                  {bmcCount} BMC{bmcCount !== 1 ? 's' : ''}
+                                </Text>
+                              </View>
+                              <View style={[styles.tableCell, styles.actionsCell, { width: 120 }]}>
+                                <Button
+                                  onPress={() => navigation.navigate('MilkTruckOwnerTripDetails', { tripId })}
+                                  variant="outline"
+                                  size="sm"
+                                  style={styles.viewButton}
+                                >
+                                  View
+                                </Button>
+                                <TouchableOpacity
+                                  onPress={() => setDeleteConfirm(tripId)}
+                                  style={[styles.deleteButton, { borderColor: colors.error[600] }]}
+                                >
+                                  <Text style={{ color: colors.error[600], fontSize: typography.fontSize.xs }}>Delete</Text>
+                                </TouchableOpacity>
+                              </View>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    </ScrollView>
+                  </View>
+                )}
               </Card>
             </Animated.View>
           )}
@@ -984,6 +1162,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.primary[50],
   },
+  liveFleetMap: {
+    flex: 1,
+    minHeight: 140,
+  },
   mockMap: {
     flex: 1,
     position: 'relative',
@@ -1241,11 +1423,14 @@ const styles = StyleSheet.create({
   driverStatValue: {
     fontSize: 12,
     fontWeight: typography.fontWeight.bold,
+    minWidth: 20,
+    textAlign: 'center',
   },
   driverStatLabel: {
     fontSize: 9,
     color: colors.text.tertiary,
     textTransform: 'uppercase',
+    fontWeight: 'bold',
   },
   notificationsList: {
     maxHeight: 400,
@@ -1669,6 +1854,51 @@ const styles = StyleSheet.create({
   paymentNoteText: {
     fontSize: typography.fontSize.xs,
     color: colors.primary[800],
+  },
+  flexHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  flexHeaderRightCompact: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  accordionContent: {
+    paddingTop: spacing.sm,
+  },
+  clearBtnAltCompact: {
+    marginTop: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border.light,
+    alignItems: 'center',
+  },
+  clearBtnTextCompact: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.error[600],
+  },
+  getLocationBtn: {
+    backgroundColor: colors.primary[50],
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.primary[200],
+    marginRight: spacing.sm,
+  },
+  getLocationText: {
+    fontSize: 10,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[700],
+    textTransform: 'uppercase',
+  },
+  clearBtnAlt: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
 });
 

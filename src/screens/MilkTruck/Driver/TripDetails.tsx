@@ -139,6 +139,11 @@ const TripDetails: React.FC = () => {
                 {variance > 0 ? '+' : ''}{variance.toFixed(1)}L
               </Text>
             </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>DISTANCE</Text>
+              <Text style={styles.statValue}>{(trip.summary?.totalDistance || 0).toFixed(1)}km</Text>
+            </View>
           </View>
         </Card>
 

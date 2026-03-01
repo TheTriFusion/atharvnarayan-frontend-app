@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated, StatusBar, Platform, KeyboardAvoidingView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated, StatusBar, Platform, KeyboardAvoidingView, Alert, Image as RNImage } from 'react-native';
+import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
+import DocumentPicker from 'react-native-document-picker';
 import { useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import Input from '../../components/common/Input';
@@ -28,10 +30,17 @@ const OwnerRegistration: React.FC = () => {
     address: '',
     panCard: '',
     aadhaarCard: '',
-    registrationNumber: '',
     gstNumber: '',
     businessCategory: 'agro_cattle_feed',
   });
+
+  // File States
+  const [profileImage, setProfileImage] = useState<any>(null);
+  const [panImage, setPanImage] = useState<any>(null);
+  const [aadhaarFrontImage, setAadhaarFrontImage] = useState<any>(null);
+  const [aadhaarBackImage, setAadhaarBackImage] = useState<any>(null);
+  const [gstDocument, setGstDocument] = useState<any>(null);
+
   const [error, setError] = useState('');
   const [successState, setSuccessState] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -75,6 +84,11 @@ const OwnerRegistration: React.FC = () => {
       if (!formData.password.trim() || formData.password.length < 6) return 'Password must be at least 6 characters';
     } else if (currentStep === 2) {
       if (!formData.companyName.trim()) return 'Company name is required';
+    } else if (currentStep === 3) {
+      if (!formData.panCard.trim()) return 'PAN Number is required';
+      if (!panImage) return 'PAN Card image is required';
+      if (!formData.aadhaarCard.trim()) return 'Aadhaar Number is required';
+      if (!aadhaarFrontImage || !aadhaarBackImage) return 'Aadhaar Card images (both sides) are required';
     }
     return null;
   };
@@ -92,6 +106,57 @@ const OwnerRegistration: React.FC = () => {
     setCurrentStep(prev => prev - 1);
   };
 
+  const handlePickFile = (type: 'profile' | 'pan' | 'aadhaarFront' | 'aadhaarBack' | 'gst') => {
+    if (type === 'gst') {
+      DocumentPicker.pick({
+        type: [DocumentPicker.types.pdf],
+      }).then(res => {
+        setGstDocument(res[0]);
+      }).catch(err => {
+        if (!DocumentPicker.isCancel(err)) {
+          console.error(err);
+        }
+      });
+      return;
+    }
+
+    Alert.alert(
+      'Upload Image',
+      'Capture photo or select from gallery',
+      [
+        {
+          text: 'Camera',
+          onPress: () => {
+            launchCamera({ mediaType: 'photo', quality: 0.7 }, (response) => {
+              if (response.assets && response.assets.length > 0) {
+                const img = response.assets[0];
+                if (type === 'profile') setProfileImage(img);
+                else if (type === 'pan') setPanImage(img);
+                else if (type === 'aadhaarFront') setAadhaarFrontImage(img);
+                else if (type === 'aadhaarBack') setAadhaarBackImage(img);
+              }
+            });
+          },
+        },
+        {
+          text: 'Gallery',
+          onPress: () => {
+            launchImageLibrary({ mediaType: 'photo', quality: 0.7 }, (response) => {
+              if (response.assets && response.assets.length > 0) {
+                const img = response.assets[0];
+                if (type === 'profile') setProfileImage(img);
+                else if (type === 'pan') setPanImage(img);
+                else if (type === 'aadhaarFront') setAadhaarFrontImage(img);
+                else if (type === 'aadhaarBack') setAadhaarBackImage(img);
+              }
+            });
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
+
   const handleSubmit = async () => {
     const stepError = validateStep();
     if (stepError) {
@@ -101,10 +166,58 @@ const OwnerRegistration: React.FC = () => {
 
     setLoading(true);
     try {
+      const fd = new FormData();
+      Object.keys(formData).forEach(key => {
+        fd.append(key, (formData as any)[key]);
+      });
+
+      // Appending all files
+      if (profileImage) {
+        fd.append('image', {
+          uri: profileImage.uri,
+          type: profileImage.type || 'image/jpeg',
+          name: profileImage.fileName || `profile_${Date.now()}.jpg`,
+        } as any);
+      }
+
+      if (panImage) {
+        fd.append('panImage', {
+          uri: panImage.uri,
+          type: panImage.type || 'image/jpeg',
+          name: panImage.fileName || `pan_${Date.now()}.jpg`,
+        } as any);
+      }
+
+      if (aadhaarFrontImage) {
+        fd.append('aadhaarFrontImage', {
+          uri: aadhaarFrontImage.uri,
+          type: aadhaarFrontImage.type || 'image/jpeg',
+          name: aadhaarFrontImage.fileName || `aadhaar_f_${Date.now()}.jpg`,
+        } as any);
+      }
+
+      if (aadhaarBackImage) {
+        fd.append('aadhaarBackImage', {
+          uri: aadhaarBackImage.uri,
+          type: aadhaarBackImage.type || 'image/jpeg',
+          name: aadhaarBackImage.fileName || `aadhaar_b_${Date.now()}.jpg`,
+        } as any);
+      }
+
+      if (gstDocument) {
+        fd.append('gstDocument', {
+          uri: gstDocument.uri,
+          type: gstDocument.type || 'application/pdf',
+          name: gstDocument.name || `gst_${Date.now()}.pdf`,
+        } as any);
+      }
+
       const response = await fetch(`${API_BASE_URL}/auth/register-owner`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        headers: {
+          'Accept': 'application/json',
+        },
+        body: fd
       });
 
       const data = await response.json();
@@ -164,6 +277,29 @@ const OwnerRegistration: React.FC = () => {
     </View>
   );
 
+  const renderImageUploader = (label: string, value: any, onPress: () => void, isPdf: boolean = false) => (
+    <View style={styles.miniUploadSection}>
+      <Text style={styles.miniLabel}>{label}</Text>
+      <TouchableOpacity
+        style={[styles.miniUploadBox, value && styles.miniUploadBoxActive]}
+        onPress={onPress}
+      >
+        {value ? (
+          isPdf ? (
+            <View style={styles.pdfIndicator}>
+              <Text style={styles.pdfEmoji}>📄</Text>
+              <Text style={styles.pdfName} numberOfLines={1}>{value.name || 'PDF Selected'}</Text>
+            </View>
+          ) : (
+            <RNImage source={{ uri: value.uri }} style={styles.miniPreview} />
+          )
+        ) : (
+          <Text style={styles.miniPlaceholder}>{isPdf ? 'Select PDF' : 'Tap to Capture'}</Text>
+        )}
+      </TouchableOpacity>
+    </View>
+  );
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
@@ -201,7 +337,7 @@ const OwnerRegistration: React.FC = () => {
                   <Input label="Full Name *" value={formData.name} onChangeText={(v) => handleChange('name', v)} placeholder="John Doe" required />
                   <View style={styles.formRow}>
                     <Input label="Phone Number *" value={formData.phoneNumber} onChangeText={(v) => handleChange('phoneNumber', v)} required keyboardType="phone-pad" maxLength={10} placeholder="10 digits" containerStyle={styles.halfInput} />
-                    <Input label="Password *" value={formData.password} onChangeText={(v) => handleChange('password', v)} required secureTextEntry placeholder="Min 6 chars" containerStyle={styles.halfInput} />
+                    <Input label="Password *" value={formData.password} onChangeText={(v) => handleChange('password', v)} required secureTextEntry placeholder="Min 6 characters" containerStyle={styles.halfInput} />
                   </View>
                   <Input label="Email Address" value={formData.email} onChangeText={(v) => handleChange('email', v)} keyboardType="email-address" placeholder="john@example.com" />
                 </View>
@@ -219,6 +355,25 @@ const OwnerRegistration: React.FC = () => {
                     <Select label="Ownership" value={formData.companyType} onChange={(v) => handleChange('companyType', String(v))} options={[{ value: 'sole_proprietorship', label: 'Individual' }, { value: 'partnership', label: 'Partnership' }, { value: 'private_limited', label: 'Private Ltd' }]} containerStyle={styles.halfInput} />
                   </View>
                   <Input label="Business Address" value={formData.address} onChangeText={(v) => handleChange('address', v)} multiline numberOfLines={3} placeholder="Complete address" />
+
+                  <View style={styles.imageUploadSection}>
+                    <Text style={styles.imageLabel}>Shop / Profile Image</Text>
+                    <TouchableOpacity
+                      style={[styles.imageUploadBox, profileImage && styles.imageUploadBoxActive]}
+                      onPress={() => handlePickFile('profile')}
+                    >
+                      {profileImage ? (
+                        <RNImage source={{ uri: profileImage.uri }} style={styles.previewImage} />
+                      ) : (
+                        <View style={styles.placeholderContainer}>
+                          <View style={styles.cameraCircle}>
+                            <Text style={styles.cameraEmoji}>📷</Text>
+                          </View>
+                          <Text style={styles.uploadText}>Upload Image</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  </View>
                 </View>
               )}
 
@@ -228,13 +383,38 @@ const OwnerRegistration: React.FC = () => {
                     <View style={styles.sectionIcon}><Text>📄</Text></View>
                     <Text style={styles.sectionTitle}>Identity Verification</Text>
                   </View>
-                  <View style={styles.formRow}>
-                    <Input label="PAN Card" value={formData.panCard} onChangeText={(v) => handleChange('panCard', v.toUpperCase())} placeholder="ABCDE1234F" containerStyle={styles.halfInput} autoCapitalize="characters" />
-                    <Input label="Aadhaar No." value={formData.aadhaarCard} onChangeText={(v) => handleChange('aadhaarCard', v)} placeholder="12 digits" keyboardType="numeric" maxLength={12} containerStyle={styles.halfInput} />
+
+                  <View style={styles.docRow}>
+                    <View style={styles.docLeft}>
+                      <Input label="PAN Card No. *" value={formData.panCard} onChangeText={(v) => handleChange('panCard', v.toUpperCase())} placeholder="ABCDE1234F" autoCapitalize="characters" />
+                    </View>
+                    <View style={styles.docRight}>
+                      {renderImageUploader("PAN Image *", panImage, () => handlePickFile('pan'))}
+                    </View>
                   </View>
+
+                  <View style={styles.divider} />
+
+                  <Input label="Aadhaar Number *" value={formData.aadhaarCard} onChangeText={(v) => handleChange('aadhaarCard', v)} placeholder="12 digits" keyboardType="numeric" maxLength={12} />
+
                   <View style={styles.formRow}>
-                    <Input label="Shop Act No." value={formData.registrationNumber} onChangeText={(v) => handleChange('registrationNumber', v)} placeholder="Reg. No" containerStyle={styles.halfInput} />
-                    <Input label="GSTIN (Opt)" value={formData.gstNumber} onChangeText={(v) => handleChange('gstNumber', v.toUpperCase())} placeholder="GST Number" containerStyle={styles.halfInput} />
+                    <View style={styles.halfInput}>
+                      {renderImageUploader("Aadhaar Front *", aadhaarFrontImage, () => handlePickFile('aadhaarFront'))}
+                    </View>
+                    <View style={styles.halfInput}>
+                      {renderImageUploader("Aadhaar Back *", aadhaarBackImage, () => handlePickFile('aadhaarBack'))}
+                    </View>
+                  </View>
+
+                  <View style={styles.divider} />
+
+                  <View style={styles.docRow}>
+                    <View style={styles.docLeft}>
+                      <Input label="GSTIN (Optional)" value={formData.gstNumber} onChangeText={(v) => handleChange('gstNumber', v.toUpperCase())} placeholder="GST Number" />
+                    </View>
+                    <View style={styles.docRight}>
+                      {renderImageUploader("GST Document", gstDocument, () => handlePickFile('gst'), true)}
+                    </View>
                   </View>
                 </View>
               )}
@@ -253,7 +433,7 @@ const OwnerRegistration: React.FC = () => {
               </View>
 
               <TouchableOpacity onPress={() => navigation.navigate('Login')} style={styles.loginLink}>
-                <Text style={styles.loginLinkText}>Already an account? <Text style={styles.loginLinkBold}>Login</Text></Text>
+                <Text style={styles.loginLinkText}>Already have an account? <Text style={styles.loginLinkBold}>Login</Text></Text>
               </TouchableOpacity>
             </Card>
           </Animated.View>
@@ -297,6 +477,31 @@ const styles = StyleSheet.create({
   successTitle: { fontSize: 22, fontWeight: 'bold', color: colors.text.primary, marginBottom: spacing.md },
   successText: { fontSize: 15, color: colors.text.secondary, textAlign: 'center', marginBottom: spacing.sm, lineHeight: 22 },
   returnButton: { marginTop: spacing.xl, width: '100%', borderRadius: borderRadius.full },
+  imageUploadSection: { marginTop: spacing.md },
+  imageLabel: { fontSize: 12, fontWeight: 'bold', color: colors.text.secondary, marginBottom: spacing.xs, textTransform: 'uppercase', letterSpacing: 0.5 },
+  imageUploadBox: { height: 160, borderRadius: borderRadius.lg, borderStyle: 'dotted', borderWidth: 2, borderColor: colors.border.light, backgroundColor: colors.background.tertiary, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+  imageUploadBoxActive: { borderStyle: 'solid', borderColor: colors.primary[400] },
+  previewImage: { width: '100%', height: '100%' },
+  placeholderContainer: { alignItems: 'center' },
+  cameraCircle: { width: 48, height: 48, borderRadius: 24, backgroundColor: colors.primary[50], justifyContent: 'center', alignItems: 'center', marginBottom: spacing.sm },
+  cameraEmoji: { fontSize: 24 },
+  uploadText: { fontSize: 14, fontWeight: 'bold', color: colors.primary[600] },
+
+  // New Styles
+  docRow: { flexDirection: 'row', gap: 10, alignItems: 'center', marginBottom: 10 },
+  docLeft: { flex: 2 },
+  docRight: { flex: 1 },
+  miniUploadSection: { marginBottom: 10 },
+  miniLabel: { fontSize: 10, fontWeight: 'bold', color: colors.text.tertiary, marginBottom: 4, textTransform: 'uppercase' },
+  miniUploadBox: { height: 70, backgroundColor: colors.background.tertiary, borderRadius: 8, borderStyle: 'dashed', borderWidth: 1, borderColor: colors.border.light, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+  miniUploadBoxActive: { borderStyle: 'solid', borderColor: colors.primary[400] },
+  miniPlaceholder: { fontSize: 10, color: colors.text.tertiary, textAlign: 'center' },
+  miniPreview: { width: '100%', height: '100%' },
+  pdfIndicator: { alignItems: 'center', padding: 4 },
+  pdfEmoji: { fontSize: 20 },
+  pdfName: { fontSize: 8, color: colors.primary[700], marginTop: 2, textAlign: 'center' },
+  divider: { height: 1, backgroundColor: colors.border.light, marginVertical: 15 },
 });
 
 export default OwnerRegistration;
+

@@ -1,14 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, Alert, ActivityIndicator } from 'react-native';
-// Force refresh
+import { View, StyleSheet, ScrollView, Alert, ActivityIndicator, Platform, PermissionsAndroid } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Geolocation from '@react-native-community/geolocation';
 import { useAuth } from '../../../contexts/AuthContext';
+import { milkTruckAPI } from '../../../utils/api';
 import {
     getMilkTruckTrips,
     getMilkTruckVehicles,
     getMilkTruckRoutes,
     addMilkTruckTrip
 } from '../../../utils/storage';
+import { startBackgroundLocation, stopBackgroundLocation } from '../../../utils/backgroundLocation';
 import ScreenHeader from '../../../components/common/ScreenHeader';
 import { colors } from '../../../theme/colors';
 import { spacing } from '../../../theme/spacing';
@@ -72,6 +75,48 @@ const TripPage: React.FC = () => {
             throw error; // Re-throw for child component to handle loading state/error display
         }
     };
+
+    // Android: request location permission + send first location + start background location service when trip is active
+    useEffect(() => {
+        if (!activeTrip?._id) {
+            stopBackgroundLocation();
+            return;
+        }
+        let mounted = true;
+        const tripId = activeTrip._id;
+        const startService = async () => {
+            if (Platform.OS === 'android') {
+                try {
+                    if (Number(Platform.Version) >= 33) {
+                        await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+                    }
+                    const granted = await PermissionsAndroid.request(
+                        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+                        { title: 'Location for trip route', message: 'Allow location so your trip route can be shared with the owner.', buttonNeutral: 'Later', buttonPositive: 'OK' }
+                    );
+                    if (granted !== PermissionsAndroid.RESULTS.GRANTED) return;
+                } catch (_) { }
+            }
+
+            // Send first location immediately so route has at least start point
+            Geolocation.getCurrentPosition(
+                (pos) => {
+                    if (!mounted) return;
+                    const { latitude, longitude } = pos.coords;
+                    milkTruckAPI.sendTripLocation(tripId, latitude, longitude).catch(() => { });
+                },
+                () => { },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+            );
+
+            startBackgroundLocation(tripId, 'milk_truck');
+        };
+        startService();
+        return () => {
+            mounted = false;
+            stopBackgroundLocation();
+        };
+    }, [activeTrip?._id]);
 
     const handleTripComplete = async (completedTrip: any) => {
         setActiveTrip(null);

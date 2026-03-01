@@ -1,6 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
     <application
       android:name=".MainApplication"
@@ -11,6 +19,9 @@
       android:theme="@style/AppTheme"
       android:usesCleartextTraffic="true"
       android:supportsRtl="true">
+      <meta-data
+        android:name="com.google.android.geo.API_KEY"
+        android:value="AIzaSyBPE_w7Uz-EB8TJOUBYR-S4jpIM8-EJUZk" />
       <activity
         android:name=".MainActivity"
         android:label="@string/app_name"
@@ -23,5 +34,11 @@
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
       </activity>
+      <service android:name="com.asterinet.reactnativebackgroundactions.RNBackgroundActionsTask" />
+      <service
+        android:name=".TripLocationService"
+        android:enabled="true"
+        android:exported="false"
+        android:foregroundServiceType="location" />
     </application>
 </manifest>

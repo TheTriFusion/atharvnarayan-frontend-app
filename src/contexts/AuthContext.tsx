@@ -49,8 +49,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         const response = await authAPI.getCurrentUser();
-        if (response.success && response.user) {
-          setUser(response.user);
+        const user = normalizeUser(response?.user);
+        if (response.success && user) {
+          setUser(user);
         } else {
           await removeToken();
         }
@@ -66,14 +67,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkAuth();
   }, []);
 
+  const normalizeUser = (raw: any): User | null => {
+    if (!raw || typeof raw !== 'object') return null;
+    const id = raw.id ?? raw._id;
+    const idStr = id != null ? String(id) : undefined;
+    if (!idStr) return null;
+    return { ...raw, id: idStr, _id: idStr };
+  };
+
   const login = async (phoneNumber: string, password: string) => {
     try {
       const response = await authAPI.login(phoneNumber, password);
-      if (response.success && response.user) {
-        setUser(response.user);
-        return { success: true, user: response.user };
+      const user = normalizeUser(response?.user);
+      if (response.success && user) {
+        setUser(user);
+        return { success: true, user };
       }
-      return { success: false, message: response.message || 'Login failed' };
+      return { success: false, message: response?.message || 'Login failed' };
     } catch (error: any) {
       return { success: false, message: error.message || 'Login failed' };
     }
@@ -82,11 +92,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginSuperAdmin = async (phoneNumber: string, password: string) => {
     try {
       const response = await authAPI.loginSuperAdmin(phoneNumber, password);
-      if (response.success && response.user) {
-        setUser(response.user);
-        return { success: true, user: response.user };
+      const user = normalizeUser(response?.user);
+      if (response.success && user) {
+        setUser(user);
+        return { success: true, user };
       }
-      return { success: false, message: response.message || 'Login failed' };
+      return { success: false, message: response?.message || 'Login failed' };
     } catch (error: any) {
       return { success: false, message: error.message || 'Login failed' };
     }

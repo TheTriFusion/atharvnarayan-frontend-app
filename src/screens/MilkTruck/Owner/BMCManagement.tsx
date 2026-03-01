@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert, Animated, Platform, StatusBar, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Alert, Animated, Platform, StatusBar, TouchableOpacity, ActivityIndicator, Image as RNImage } from 'react-native';
 import { useRoute } from '@react-navigation/native';
 import { getMilkTruckBMCs, addMilkTruckBMC, updateMilkTruckBMC, deleteMilkTruckBMC, getMilkTruckBMCHistory } from '../../../utils/storage';
 import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
 import Input from '../../../components/common/Input';
 import Modal from '../../../components/common/Modal';
+import { Modal as RNModal } from 'react-native';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useOwner } from '../../../contexts/OwnerContext';
 import OwnerSelector from '../../../components/SuperAdmin/OwnerSelector';
@@ -15,6 +16,8 @@ import { spacing, borderRadius, shadows } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
 import ScreenHeader from '../../../components/common/ScreenHeader';
 import LinearGradient from 'react-native-linear-gradient';
+import { BASE_URL } from '../../../config/api';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 
 const BMCManagement: React.FC = () => {
   const { isSuperAdmin } = useAuth();
@@ -28,8 +31,19 @@ const BMCManagement: React.FC = () => {
     name: '',
     location: '',
     contact: '',
+    latitude: 20.5937,
+    longitude: 78.9629,
   });
+  const [mapRegion, setMapRegion] = useState({
+    latitude: 20.5937,
+    longitude: 78.9629,
+    latitudeDelta: 0.01,
+    longitudeDelta: 0.01,
+  });
+  const [isLocationConfirmed, setIsLocationConfirmed] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [isImageModalVisible, setIsImageModalVisible] = useState(false);
+  const [selectedEntryImage, setSelectedEntryImage] = useState<string | null>(null);
 
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -104,7 +118,16 @@ const BMCManagement: React.FC = () => {
       name: bmc.name || '',
       location: bmc.location || '',
       contact: bmc.contact || '',
+      latitude: bmc.latitude || 20.5937,
+      longitude: bmc.longitude || 78.9629,
     });
+    setMapRegion({
+      latitude: bmc.latitude || 20.5937,
+      longitude: bmc.longitude || 78.9629,
+      latitudeDelta: 0.005,
+      longitudeDelta: 0.005,
+    });
+    setIsLocationConfirmed(true);
     setShowForm(true);
   };
 
@@ -133,7 +156,9 @@ const BMCManagement: React.FC = () => {
   };
 
   const resetForm = () => {
-    setFormData({ name: '', location: '', contact: '' });
+    setFormData({ name: '', location: '', contact: '', latitude: 20.5937, longitude: 78.9629 });
+    setMapRegion({ latitude: 20.5937, longitude: 78.9629, latitudeDelta: 0.01, longitudeDelta: 0.01 });
+    setIsLocationConfirmed(false);
     setEditingBMC(null);
     setShowForm(false);
   };
@@ -297,6 +322,25 @@ const BMCManagement: React.FC = () => {
                     </View>
                   </View>
 
+                  {item.collection?.image && (
+                    <TouchableOpacity
+                      style={styles.historyThumbnailContainer}
+                      onPress={() => {
+                        setSelectedEntryImage(`${BASE_URL}${item.collection.image}`);
+                        setIsImageModalVisible(true);
+                      }}
+                    >
+                      <RNImage
+                        source={{ uri: `${BASE_URL}${item.collection.image}` }}
+                        style={styles.historyThumbnail}
+                        resizeMode="cover"
+                      />
+                      <View style={styles.zoomOverlay}>
+                        <Text style={styles.zoomEmoji}>🔍</Text>
+                      </View>
+                    </TouchableOpacity>
+                  )}
+
                   <View style={styles.logGrid}>
                     <View style={styles.logMetric}>
                       <Text style={styles.lmLabel}>Quantity</Text>
@@ -391,6 +435,64 @@ const BMCManagement: React.FC = () => {
             placeholder="Phone number"
             keyboardType="phone-pad"
           />
+
+          <Text style={[styles.formSubtitle, { marginTop: spacing.md, marginBottom: spacing.xs }]}>
+            Pick BMC Location on Map
+          </Text>
+          <View style={styles.mapPickerWrapper}>
+            <MapView
+              provider={PROVIDER_GOOGLE}
+              style={styles.pickerMap}
+              region={mapRegion}
+              onRegionChangeComplete={(region) => {
+                setMapRegion(region);
+                if (!isLocationConfirmed) {
+                  // Auto-update if not confirmed yet, but wait for explicit confirm if desired
+                }
+              }}
+            >
+              <Marker
+                coordinate={{
+                  latitude: mapRegion.latitude,
+                  longitude: mapRegion.longitude,
+                }}
+              />
+            </MapView>
+            <View style={styles.mapTarget}>
+              <View style={styles.targetInner} />
+            </View>
+
+            <TouchableOpacity
+              style={[
+                styles.confirmLocBtn,
+                isLocationConfirmed && { backgroundColor: colors.success[600] }
+              ]}
+              onPress={() => {
+                setFormData(prev => ({
+                  ...prev,
+                  latitude: mapRegion.latitude,
+                  longitude: mapRegion.longitude
+                }));
+                setIsLocationConfirmed(true);
+                success('Location Selected');
+              }}
+            >
+              <Text style={styles.confirmLocText}>
+                {isLocationConfirmed ? '✓ Location Confirmed' : '📍 Confirm This Location'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.locCoordsRow}>
+            <View style={styles.coordBox}>
+              <Text style={styles.coordLabel}>LAT</Text>
+              <Text style={styles.coordValue}>{formData.latitude.toFixed(6)}</Text>
+            </View>
+            <View style={styles.coordBox}>
+              <Text style={styles.coordLabel}>LNG</Text>
+              <Text style={styles.coordValue}>{formData.longitude.toFixed(6)}</Text>
+            </View>
+          </View>
           <View style={styles.modalFooter}>
             <Button
               variant="primary"
@@ -405,6 +507,34 @@ const BMCManagement: React.FC = () => {
           </View>
         </View>
       </Modal>
+
+      {/* Full Image Modal */}
+      <RNModal
+        visible={isImageModalVisible}
+        transparent={true}
+        onRequestClose={() => setIsImageModalVisible(false)}
+        animationType="fade"
+      >
+        <TouchableOpacity
+          style={styles.fullImageOverlay}
+          activeOpacity={1}
+          onPress={() => setIsImageModalVisible(false)}
+        >
+          <View style={styles.fullImageContainer}>
+            <RNImage
+              source={{ uri: selectedEntryImage || '' }}
+              style={styles.fullImage}
+              resizeMode="contain"
+            />
+            <TouchableOpacity
+              style={styles.closeFullImageBtn}
+              onPress={() => setIsImageModalVisible(false)}
+            >
+              <Text style={styles.closeFullImageText}>CLOSE</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </RNModal>
     </View>
   );
 };
@@ -578,6 +708,75 @@ const styles = StyleSheet.create({
   cancelText: {
     color: colors.text.tertiary,
     fontWeight: '600',
+  },
+  mapPickerWrapper: {
+    height: 220,
+    width: '100%',
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.border.light,
+    position: 'relative',
+    marginBottom: spacing.sm,
+  },
+  pickerMap: {
+    flex: 1,
+  },
+  mapTarget: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    marginLeft: -15,
+    marginTop: -30,
+    pointerEvents: 'none',
+  },
+  targetInner: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 2,
+    borderColor: colors.primary[500],
+    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+  },
+  confirmLocBtn: {
+    position: 'absolute',
+    bottom: 12,
+    left: 12,
+    right: 12,
+    backgroundColor: colors.primary[600],
+    paddingVertical: 10,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    ...shadows.md,
+  },
+  confirmLocText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 12,
+  },
+  locCoordsRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  coordBox: {
+    flex: 1,
+    backgroundColor: colors.background.secondary,
+    padding: 8,
+    borderRadius: borderRadius.sm,
+    borderWidth: 1,
+    borderColor: colors.border.light,
+  },
+  coordLabel: {
+    fontSize: 8,
+    fontWeight: 'bold',
+    color: colors.text.tertiary,
+    marginBottom: 2,
+  },
+  coordValue: {
+    fontSize: 10,
+    color: colors.primary[900],
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   emptyCard: {
     padding: spacing.xxl,
@@ -785,6 +984,63 @@ const styles = StyleSheet.create({
   },
   textDanger: {
     color: colors.error[600],
+  },
+  historyThumbnailContainer: {
+    width: '100%',
+    height: 120,
+    backgroundColor: colors.background.tertiary,
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing.md,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.border.light,
+  },
+  historyThumbnail: {
+    width: '100%',
+    height: '100%',
+  },
+  zoomOverlay: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  zoomEmoji: {
+    fontSize: 12,
+  },
+  fullImageOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullImageContainer: {
+    width: '90%',
+    height: '80%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullImage: {
+    width: '100%',
+    height: '100%',
+  },
+  closeFullImageBtn: {
+    marginTop: 30,
+    paddingHorizontal: 30,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  closeFullImageText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    letterSpacing: 1,
+    fontSize: 12,
   },
 });
 

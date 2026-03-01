@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, RefreshControl, Animated, StatusBar, Platform } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
@@ -7,6 +7,8 @@ import { cattleFeedTruckAPI } from '../../../utils/api';
 import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
 import ScreenHeader from '../../../components/common/ScreenHeader';
+import DriverPathMap, { Coord } from '../../../components/DriverPathMap';
+import { useOwnerTripSocket } from '../../../hooks/useOwnerTripSocket';
 import { colors } from '../../../theme/colors';
 import { spacing, borderRadius, shadows } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
@@ -17,6 +19,32 @@ const CattleFeedTruckOwnerDashboard: React.FC = () => {
   const [trips, setTrips] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [fleetPathCoordinates, setFleetPathCoordinates] = useState<Coord[]>([]);
+
+  const activeTripIds = useMemo(
+    () =>
+      trips
+        .filter((t: any) => t.status === 'in_transit' || t.status === 'loading')
+        .map((t: any) => t._id)
+        .filter(Boolean),
+    [trips]
+  );
+
+  useOwnerTripSocket({
+    activeTripIds,
+    ownerId: user?.id ?? null,
+    enabled: true,
+    onDriverLocation: (lat, lng) => {
+      setFleetPathCoordinates((prev) => [...prev, { latitude: lat, longitude: lng }]);
+    },
+    onOwnerNotification: () => {
+      // Optional: show toast or add notifications state
+    },
+  });
+
+  useEffect(() => {
+    if (activeTripIds.length === 0) setFleetPathCoordinates([]);
+  }, [activeTripIds.length]);
 
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -47,6 +75,21 @@ const CattleFeedTruckOwnerDashboard: React.FC = () => {
       const tripsResponse = await cattleFeedTruckAPI.getTrips(user?.id);
       const tripsData = Array.isArray(tripsResponse) ? tripsResponse : (Array.isArray(tripsResponse.data) ? tripsResponse.data : []);
       setTrips(tripsData);
+      const activeIds = (tripsData || [])
+        .filter((t: any) => t.status === 'in_transit' || t.status === 'loading')
+        .map((t: any) => t._id)
+        .filter(Boolean);
+      if (activeIds.length > 0) {
+        try {
+          const tripRes = await cattleFeedTruckAPI.getTrip(activeIds[0]);
+          const trip = tripRes?.data ?? tripRes;
+          const history = trip?.locationHistory ?? [];
+          const path: Coord[] = history
+            .map((p: any) => ({ latitude: p.latitude ?? p.lat, longitude: p.longitude ?? p.lng }))
+            .filter((p: Coord) => typeof p.latitude === 'number' && typeof p.longitude === 'number');
+          setFleetPathCoordinates(path);
+        } catch (_) { /* ignore */ }
+      }
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
     } finally {
@@ -143,6 +186,33 @@ const CattleFeedTruckOwnerDashboard: React.FC = () => {
                 <Text style={styles.actionLabel}>Routes</Text>
               </TouchableOpacity>
             </View>
+          </View>
+
+          {/* Live Fleet Tracking */}
+          <View style={styles.sectionContainer}>
+            <Text style={styles.sectionTitleLight}>Live Fleet Tracking</Text>
+            <Card style={styles.liveFleetCard}>
+              <View style={styles.mapPlaceholderWrapper}>
+                <DriverPathMap
+                  coordinates={fleetPathCoordinates}
+                  followUser={false}
+                  initialRegion={{
+                    latitude: 20.5937,
+                    longitude: 78.9629,
+                    latitudeDelta: 8,
+                    longitudeDelta: 8,
+                  }}
+                  style={styles.liveFleetMap}
+                />
+              </View>
+              {activeTripIds.length > 0 && (
+                <Text style={styles.liveFleetHint}>
+                  {fleetPathCoordinates.length > 0
+                    ? 'Driver path updating live'
+                    : 'Waiting for driver location…'}
+                </Text>
+              )}
+            </Card>
           </View>
 
           {/* Recent Trips Section */}
@@ -294,6 +364,30 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: colors.text.primary,
+  },
+  liveFleetCard: {
+    marginHorizontal: 0,
+    padding: 0,
+    borderRadius: borderRadius.xl,
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+    ...shadows.lg,
+  },
+  mapPlaceholderWrapper: {
+    height: 200,
+    width: '100%',
+  },
+  liveFleetMap: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    borderRadius: borderRadius.lg,
+  },
+  liveFleetHint: {
+    padding: spacing.sm,
+    fontSize: 12,
+    color: colors.text.tertiary,
+    textAlign: 'center',
   },
   recentTripsCard: {
     marginHorizontal: spacing.md,
