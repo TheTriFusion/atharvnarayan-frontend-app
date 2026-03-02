@@ -1,6 +1,6 @@
 // API utility functions for making requests to backend
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import API_BASE_URL from '../config/api';
+import API_BASE_URL, { BASE_URL } from '../config/api';
 
 // Request cache to prevent duplicate calls
 const pendingRequests = new Map();
@@ -111,6 +111,26 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}): Promise<
   pendingRequests.set(requestKey, requestPromise);
 
   return requestPromise;
+};
+
+/**
+ * Converts a relative image path from the backend into a full URL.
+ * Handles paths starting with or without /uploads.
+ */
+export const getImageUrl = (path: string | null | undefined): string | null => {
+  if (!path) return null;
+  if (path.startsWith('http')) return path;
+
+  // Ensure we don't have double slashes
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+
+  // If the path already includes /uploads, just prepend BASE_URL
+  if (cleanPath.startsWith('/uploads')) {
+    return `${BASE_URL}${cleanPath}`;
+  }
+
+  // Otherwise append /uploads and the path
+  return `${BASE_URL}/uploads${cleanPath}`;
 };
 
 // Auth API
@@ -382,10 +402,25 @@ export const cattleFeedTruckAPI = {
 // GPS Tracking API
 export const gpsAPI = {
   getFleetStatus: () => apiRequest('/gps/fleet-status'),
+  getActiveTrips: (ownerId?: string) => {
+    const url = ownerId ? `/gps/active-trips?ownerId=${ownerId}` : '/gps/active-trips';
+    return apiRequest(url);
+  },
+  getTripTracking: (tripId: string) => apiRequest(`/gps/trips/${tripId}/tracking`),
+  updateTripLocation: (tripId: string, latitude: number, longitude: number) =>
+    apiRequest(`/gps/trips/${tripId}/location`, {
+      method: 'PUT',
+      body: JSON.stringify({ latitude, longitude }),
+    }),
   updateUserLocation: (latitude: number, longitude: number) =>
     apiRequest('/gps/user-location', {
       method: 'PUT',
       body: JSON.stringify({ latitude, longitude }),
+    }),
+  notifyArrival: (tripId: string, bmcId: string) =>
+    apiRequest(`/gps/trips/${tripId}/notify-arrival`, {
+      method: 'POST',
+      body: JSON.stringify({ bmcId }),
     }),
 };
 

@@ -2,12 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, StatusBar, Animated, ActivityIndicator, KeyboardAvoidingView, Modal, Image as RNImage } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
-import { getMilkTruckTrips, getMilkTruckBMCs, getMilkTruckVehicles, getMilkTruckRoutes, getMilkTruckPricing } from '../../../utils/storage';
+import { getMilkTruckTrip, getMilkTruckBMCs, getMilkTruckVehicles, getMilkTruckRoutes, getMilkTruckPricing } from '../../../utils/storage';
 import Card from '../../../components/common/Card';
 import Input from '../../../components/common/Input';
 import ScreenHeader from '../../../components/common/ScreenHeader';
 import DriverPathMap, { Coord } from '../../../components/DriverPathMap';
 import { BASE_URL } from '../../../config/api';
+import { getImageUrl } from '../../../utils/api';
 import { calculateTotalDistance } from '../../../utils/distance';
 import { colors } from '../../../theme/colors';
 import { spacing, borderRadius, shadows } from '../../../theme/spacing';
@@ -45,16 +46,13 @@ const OwnerTripDetails: React.FC = () => {
     const loadData = async () => {
         try {
             setLoading(true);
-            const [allTrips, vehiclesData, routesData, bmcsData, pricingData] = await Promise.all([
-                getMilkTruckTrips(),
+            const [foundTrip, vehiclesData, routesData, bmcsData, pricingData] = await Promise.all([
+                getMilkTruckTrip(tripId),
                 getMilkTruckVehicles(),
                 getMilkTruckRoutes(),
                 getMilkTruckBMCs(),
                 getMilkTruckPricing(),
             ]);
-
-            const tripsArray = Array.isArray(allTrips) ? allTrips : [];
-            const foundTrip = tripsArray.find(t => (t._id || t.id) === tripId);
 
             if (!foundTrip) {
                 navigation.goBack();
@@ -376,13 +374,14 @@ const OwnerTripDetails: React.FC = () => {
                                                     <TouchableOpacity
                                                         onPress={(e) => {
                                                             e.stopPropagation();
-                                                            setSelectedEntryImage(`${BASE_URL}${entry.collectionData.image}`);
+                                                            const imgUrl = getImageUrl(entry.collectionData.image);
+                                                            setSelectedEntryImage(imgUrl);
                                                             setIsImageModalVisible(true);
                                                         }}
                                                         style={styles.thumbnailContainer}
                                                     >
                                                         <RNImage
-                                                            source={{ uri: `${BASE_URL}${entry.collectionData.image}` }}
+                                                            source={{ uri: getImageUrl(entry.collectionData.image) || undefined }}
                                                             style={styles.thumbnail}
                                                         />
                                                         <View style={styles.zoomIconBg}>

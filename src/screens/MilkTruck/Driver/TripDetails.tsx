@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Animated, TouchableOpacity, Dimensions } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
-import { getMilkTruckTrips, getMilkTruckBMCs, getMilkTruckVehicles, getMilkTruckDrivers, getMilkTruckRoutes } from '../../../utils/storage';
+import { getMilkTruckTrip, getMilkTruckBMCs, getMilkTruckVehicles, getMilkTruckDrivers, getMilkTruckRoutes } from '../../../utils/storage';
 import Card from '../../../components/common/Card';
 import { colors } from '../../../theme/colors';
 import { spacing, borderRadius, shadows } from '../../../theme/spacing';
@@ -35,16 +35,13 @@ const TripDetails: React.FC = () => {
   const loadTripDetails = async () => {
     try {
       setLoading(true);
-      const [allTrips, vehiclesData, routesData, bmcsData, driversData] = await Promise.all([
-        getMilkTruckTrips(),
+      const [foundTrip, vehiclesData, routesData, bmcsData, driversData] = await Promise.all([
+        getMilkTruckTrip(tripId),
         getMilkTruckVehicles(),
         getMilkTruckRoutes(),
         getMilkTruckBMCs(),
         getMilkTruckDrivers(),
       ]);
-
-      const tripsArray = Array.isArray(allTrips) ? allTrips : [];
-      const foundTrip = tripsArray.find(t => (t._id || t.id) === tripId);
 
       if (!foundTrip) {
         navigation.goBack();

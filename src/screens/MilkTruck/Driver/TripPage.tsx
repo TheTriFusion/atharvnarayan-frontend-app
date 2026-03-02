@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, StyleSheet, ScrollView, Alert, ActivityIndicator, Platform, PermissionsAndroid } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -11,7 +11,8 @@ import {
     getMilkTruckRoutes,
     addMilkTruckTrip
 } from '../../../utils/storage';
-import { startBackgroundLocation, stopBackgroundLocation } from '../../../utils/backgroundLocation';
+import { startTripLocationService, stopTripLocationService } from '../../../utils/tripLocationService';
+import { useTripSocket } from '../../../hooks/useTripSocket';
 import ScreenHeader from '../../../components/common/ScreenHeader';
 import { colors } from '../../../theme/colors';
 import { spacing } from '../../../theme/spacing';
@@ -25,6 +26,17 @@ const TripPage: React.FC = () => {
     const [activeTrip, setActiveTrip] = useState<any>(null);
     const [vehicles, setVehicles] = useState<any[]>([]);
     const [routes, setRoutes] = useState<any[]>([]);
+    const watchIdRef = useRef<number | null>(null);
+
+    // Socket.io for real-time location emission to owner
+    const isOnTrip = !!activeTrip && activeTrip.status === 'in_progress';
+    const { emitLocation } = useTripSocket(activeTrip?._id ?? null, isOnTrip);
+
+    // Ref to always use latest emitLocation in watchPosition callback (survives socket reconnects)
+    const emitLocationRef = useRef(emitLocation);
+    useEffect(() => {
+        emitLocationRef.current = emitLocation;
+    }, [emitLocation]);
 
     const loadData = useCallback(async () => {
         try {
@@ -76,15 +88,27 @@ const TripPage: React.FC = () => {
         }
     };
 
-    // Android: request location permission + send first location + start background location service when trip is active
+    // ============================================================
+    // LOCATION TRACKING — runs while trip is active
+    // 1) Native Android foreground service for background reliability
+    // 2) JS watchPosition for real-time Socket.io emission to owner
+    // ============================================================
     useEffect(() => {
         if (!activeTrip?._id) {
-            stopBackgroundLocation();
+            // No active trip → stop everything
+            stopTripLocationService();
+            if (watchIdRef.current != null) {
+                Geolocation.clearWatch(watchIdRef.current);
+                watchIdRef.current = null;
+            }
             return;
         }
+
         let mounted = true;
         const tripId = activeTrip._id;
-        const startService = async () => {
+
+        const startAllTracking = async () => {
+            // --- Permissions ---
             if (Platform.OS === 'android') {
                 try {
                     if (Number(Platform.Version) >= 33) {
@@ -92,29 +116,79 @@ const TripPage: React.FC = () => {
                     }
                     const granted = await PermissionsAndroid.request(
                         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-                        { title: 'Location for trip route', message: 'Allow location so your trip route can be shared with the owner.', buttonNeutral: 'Later', buttonPositive: 'OK' }
+                        {
+                            title: 'Location for trip route',
+                            message: 'Allow location so your trip route can be shared with the owner.',
+                            buttonNeutral: 'Later',
+                            buttonPositive: 'OK',
+                        }
                     );
                     if (granted !== PermissionsAndroid.RESULTS.GRANTED) return;
+                    // Request background location for Android 10+
+                    if (Number(Platform.Version) >= 29) {
+                        await PermissionsAndroid.request(
+                            PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION,
+                            {
+                                title: 'Background location',
+                                message: 'Allow background location so the trip route is recorded even when the app is closed.',
+                                buttonNeutral: 'Later',
+                                buttonPositive: 'OK',
+                            }
+                        );
+                    }
                 } catch (_) { }
             }
 
-            // Send first location immediately so route has at least start point
+            // --- Send first location immediately ---
             Geolocation.getCurrentPosition(
                 (pos) => {
                     if (!mounted) return;
                     const { latitude, longitude } = pos.coords;
                     milkTruckAPI.sendTripLocation(tripId, latitude, longitude).catch(() => { });
+                    emitLocationRef.current(latitude, longitude, user?.id || user?._id);
                 },
                 () => { },
                 { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
             );
 
-            startBackgroundLocation(tripId, 'milk_truck');
+            // --- Start native Android foreground service (reliable in background / screen off) ---
+            try {
+                const token = await AsyncStorage.getItem('token');
+                if (token) {
+                    startTripLocationService(tripId, token, 'milk_truck');
+                }
+            } catch (e) {
+                console.warn('Failed to start native location service:', e);
+            }
+
+            // --- Start JS watchPosition for real-time Socket.io updates to owner ---
+            const watchId = Geolocation.watchPosition(
+                (position) => {
+                    if (!mounted) return;
+                    const { latitude, longitude } = position.coords;
+                    // Emit via socket so owner sees live movement on FleetMap
+                    emitLocationRef.current(latitude, longitude, user?.id || user?._id);
+                },
+                (err) => console.warn('Trip location watch error:', err),
+                {
+                    enableHighAccuracy: true,
+                    distanceFilter: 10,
+                    interval: 5000,
+                    fastestInterval: 2000,
+                }
+            );
+            watchIdRef.current = watchId;
         };
-        startService();
+
+        startAllTracking();
+
         return () => {
             mounted = false;
-            stopBackgroundLocation();
+            stopTripLocationService();
+            if (watchIdRef.current != null) {
+                Geolocation.clearWatch(watchIdRef.current);
+                watchIdRef.current = null;
+            }
         };
     }, [activeTrip?._id]);
 

@@ -17,6 +17,7 @@ import { typography } from '../../../theme/typography';
 import ScreenHeader from '../../../components/common/ScreenHeader';
 import LinearGradient from 'react-native-linear-gradient';
 import { BASE_URL } from '../../../config/api';
+import { getImageUrl } from '../../../utils/api';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 
 const BMCManagement: React.FC = () => {
@@ -326,12 +327,13 @@ const BMCManagement: React.FC = () => {
                     <TouchableOpacity
                       style={styles.historyThumbnailContainer}
                       onPress={() => {
-                        setSelectedEntryImage(`${BASE_URL}${item.collection.image}`);
+                        const imgUrl = getImageUrl(item.collection.image);
+                        setSelectedEntryImage(imgUrl);
                         setIsImageModalVisible(true);
                       }}
                     >
                       <RNImage
-                        source={{ uri: `${BASE_URL}${item.collection.image}` }}
+                        source={{ uri: getImageUrl(item.collection.image) || undefined }}
                         style={styles.historyThumbnail}
                         resizeMode="cover"
                       />

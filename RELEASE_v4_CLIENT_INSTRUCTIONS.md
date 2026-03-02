@@ -1,9 +1,9 @@
-# Dairy Connect – App v4.2 – Client Instructions
+# Dairy Connect – App v4.3 – Client Instructions
 
 ## Version
-- **App version:** 4.2 (versionCode 6)
+- **App version:** 4.3 (versionCode 7)
 - **Build:** Release APK (signed for distribution/testing)
-- **Updates in 4.2:** KeyboardAvoidingView fix (OwnerTripDetails), Error Boundary, 401 logout fix, trip path message, Google Maps API key
+- **Updates in 4.3:** Proper new patch update with latest improvements and bug fixes.
 
 ---
 
@@ -16,7 +16,7 @@ AtharvNarayan\android\app\build\outputs\apk\release\app-release.apk
 ```
 
 Rename before sending (optional):
-- Example: `DairyConnect-v4.2-release.apk`
+- Example: `DairyConnect-v4.3-release.apk`
 
 ---
 
@@ -37,7 +37,7 @@ Rename before sending (optional):
 1. **Enable “Install from unknown sources”** (or “Install unknown apps”) for the app you use to open the APK (e.g. Chrome, Files).
 2. Copy `app-release.apk` to the phone (WhatsApp, email, Google Drive, etc.).
 3. Open the APK file on the phone and tap **Install**.
-4. If a previous version (Dairy Connect) is installed, it will **update** to v4.2.
+4. If a previous version (Dairy Connect) is installed, it will **update** to v4.3.
 
 ---
 

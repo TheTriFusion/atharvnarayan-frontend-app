@@ -10,6 +10,7 @@ import { typography } from '../../../theme/typography';
 import { addBMCCollectionEntry, getMilkTruckTrip } from '../../../utils/storage';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import Icon from 'react-native-vector-icons/Feather';
+import { getImageUrl } from '../../../utils/api';
 
 interface BMCCollectionProps {
     trip: any;
@@ -99,7 +100,8 @@ const BMCCollection: React.FC<BMCCollectionProps> = ({ trip, route, onComplete }
                 fatContent: entry.collectionData.fatContent.toString(),
                 snfContent: entry.collectionData.snfContent.toString(),
             });
-            setSelectedImage(entry.collectionData.image ? { uri: entry.collectionData.image } : null);
+            const imageUrl = getImageUrl(entry.collectionData.image);
+            setSelectedImage(imageUrl ? { uri: imageUrl } : null);
         } else {
             setFormData({ milkQuantity: '', fatContent: '', snfContent: '' });
             setSelectedImage(null);

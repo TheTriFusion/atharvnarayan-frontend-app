@@ -132,6 +132,15 @@ const MilkTruckOwnerDashboard: React.FC = () => {
     ]).start();
   }, [selectedOwnerId]);
 
+  // Auto-refresh fleet location every 15 seconds while tracking panel is open
+  useEffect(() => {
+    if (!fleetTrackingExpanded) return;
+    const interval = setInterval(() => {
+      loadFleetStatus();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [fleetTrackingExpanded, ownerId]);
+
   const loadNotifications = async () => {
     try {
       const notifsJson = await AsyncStorage.getItem('ownerNotifications');

@@ -42,7 +42,7 @@ class TripLocationService : Service(), LocationListener {
         private const val TRIP_TYPE_MILK = "milk_truck"
         private const val TRIP_TYPE_CATTLE = "cattle_feed_truck"
         private const val TAG = "TripLocationService"
-        private const val MIN_INTERVAL_MS = 2 * 60 * 1000L  // 2 minutes
+        private const val MIN_INTERVAL_MS = 30 * 1000L  // 30 seconds
         private const val MIN_DISTANCE_M = 10f
     }
 

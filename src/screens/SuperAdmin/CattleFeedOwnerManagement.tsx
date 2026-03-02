@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Alert, TouchableOpacity, Image } from 'react-native';
+import { getImageUrl } from '../../utils/api';
 import {
   getCattleFeedOwners,
   getPendingCattleFeedOwners,
@@ -21,6 +22,8 @@ const CattleFeedOwnerManagement: React.FC = () => {
   const [pendingOwners, setPendingOwners] = useState<any[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingOwner, setEditingOwner] = useState<any>(null);
+  const [showDocs, setShowDocs] = useState(false);
+  const [selectedOwnerDocs, setSelectedOwnerDocs] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [formData, setFormData] = useState({
     name: '',
@@ -262,6 +265,60 @@ const CattleFeedOwnerManagement: React.FC = () => {
         </ScrollView>
       </Modal>
 
+      <Modal visible={showDocs} onClose={() => setShowDocs(false)} title="Onboarding Documents">
+        <ScrollView style={styles.docsModalContent}>
+          {selectedOwnerDocs?.documents ? (
+            <View style={styles.docsList}>
+              <View style={styles.docItem}>
+                <Text style={styles.docLabel}>PAN Card: {selectedOwnerDocs.documents.panCard || 'N/A'}</Text>
+                {selectedOwnerDocs.documents.panImage && (
+                  <Image
+                    source={{ uri: getImageUrl(selectedOwnerDocs.documents.panImage) || undefined }}
+                    style={styles.docImage}
+                    resizeMode="contain"
+                  />
+                )}
+              </View>
+
+              <View style={styles.docItem}>
+                <Text style={styles.docLabel}>Aadhaar Card: {selectedOwnerDocs.documents.aadhaarCard || 'N/A'}</Text>
+                <View style={styles.aadhaarRow}>
+                  {selectedOwnerDocs.documents.aadhaarFrontImage && (
+                    <Image
+                      source={{ uri: getImageUrl(selectedOwnerDocs.documents.aadhaarFrontImage) || undefined }}
+                      style={styles.halfDocImage}
+                      resizeMode="contain"
+                    />
+                  )}
+                  {selectedOwnerDocs.documents.aadhaarBackImage && (
+                    <Image
+                      source={{ uri: getImageUrl(selectedOwnerDocs.documents.aadhaarBackImage) || undefined }}
+                      style={styles.halfDocImage}
+                      resizeMode="contain"
+                    />
+                  )}
+                </View>
+              </View>
+
+              <View style={styles.docItem}>
+                <Text style={styles.docLabel}>GST Number: {selectedOwnerDocs.documents.gstNumber || 'N/A'}</Text>
+                {selectedOwnerDocs.documents.gstDocument && (
+                  <View style={styles.pdfLink}>
+                    <Text style={{ fontSize: 40 }}>📄</Text>
+                    <Text style={styles.pdfText}>GST Document (PDF)</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          ) : (
+            <Text style={styles.emptyText}>No documents found for this owner.</Text>
+          )}
+          <Button variant="primary" onPress={() => setShowDocs(false)} style={{ marginTop: 20 }}>
+            Done
+          </Button>
+        </ScrollView>
+      </Modal>
+
       <Card>
         {filteredOwners.length === 0 ? (
           <Text style={styles.emptyText}>No owners found</Text>
@@ -281,13 +338,25 @@ const CattleFeedOwnerManagement: React.FC = () => {
                 </View>
                 <View style={styles.listItemActions}>
                   {activeTab === 'pending' && (
-                    <Button
-                      variant="primary"
-                      onPress={() => handleApprove(owner)}
-                      style={styles.actionButton}
-                    >
-                      Approve
-                    </Button>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <Button
+                        variant="primary"
+                        onPress={() => handleApprove(owner)}
+                        style={{ flex: 1.5 }}
+                      >
+                        Approve
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onPress={() => {
+                          setSelectedOwnerDocs(owner);
+                          setShowDocs(true);
+                        }}
+                        style={{ flex: 1 }}
+                      >
+                        Verify Docs
+                      </Button>
+                    </View>
                   )}
                   <Button
                     variant="secondary"
@@ -424,6 +493,51 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     marginTop: 8,
+  },
+  docsModalContent: {
+    maxHeight: 600,
+    padding: 10,
+  },
+  docsList: {
+    gap: 20,
+  },
+  docItem: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    paddingBottom: 15,
+  },
+  docLabel: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#374151',
+    marginBottom: 10,
+  },
+  docImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    backgroundColor: '#f3f4f6',
+  },
+  aadhaarRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  halfDocImage: {
+    flex: 1,
+    height: 150,
+    borderRadius: 8,
+    backgroundColor: '#f3f4f6',
+  },
+  pdfLink: {
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#f3f4f6',
+    borderRadius: 8,
+  },
+  pdfText: {
+    marginTop: 8,
+    color: '#2563eb',
+    fontWeight: '600',
   },
 });
 

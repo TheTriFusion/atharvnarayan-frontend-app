@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { StyleSheet, View, Text } from 'react-native';
-import MapView, { Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Polyline, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 
 export interface Coord {
   latitude: number;
@@ -30,6 +30,7 @@ export default function DriverPathMap({
   const mapRef = useRef<MapView>(null);
   const safeCoords = Array.isArray(coordinates) ? coordinates : [];
   const lastCoord = safeCoords[safeCoords.length - 1];
+  const firstCoord = safeCoords[0];
 
   useEffect(() => {
     if (!followUser || !lastCoord || !mapRef.current) return;
@@ -43,6 +44,18 @@ export default function DriverPathMap({
       300
     );
   }, [lastCoord?.latitude, lastCoord?.longitude, followUser]);
+
+  // For historical (non-followUser) paths, fit to all coordinates
+  useEffect(() => {
+    if (followUser || safeCoords.length < 2 || !mapRef.current) return;
+    const timer = setTimeout(() => {
+      mapRef.current?.fitToCoordinates(safeCoords, {
+        edgePadding: { top: 60, right: 60, bottom: 60, left: 60 },
+        animated: true,
+      });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [safeCoords.length, followUser]);
 
   const defaultRegion = {
     latitude: 20.5937,
@@ -77,6 +90,22 @@ export default function DriverPathMap({
             coordinates={safeCoords}
             strokeColor="#3B82F6"
             strokeWidth={4}
+          />
+        )}
+        {/* Start marker */}
+        {firstCoord && !followUser && (
+          <Marker
+            coordinate={firstCoord}
+            title="Start"
+            pinColor="#10B981"
+          />
+        )}
+        {/* End marker */}
+        {lastCoord && !followUser && safeCoords.length >= 2 && (
+          <Marker
+            coordinate={lastCoord}
+            title="End"
+            pinColor="#EF4444"
           />
         )}
       </MapView>
