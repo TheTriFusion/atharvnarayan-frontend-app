@@ -1,0 +1,16 @@
+{
+    "dashboard": {
+        "welcome": "Welcome",
+        "active_trip": "Active Trip",
+        "start_trip": "Start New Trip",
+        "recent_trips": "Recent Trips",
+        "logout": "Logout",
+        "view_details": "View Details"
+    },
+    "driver": {
+        "deliveries_completed": "Deliveries Completed",
+        "total_bags": "Total Bags Delivered",
+        "mark_delivered": "Mark Delivered",
+        "change_language": "Change Language"
+    }
+}

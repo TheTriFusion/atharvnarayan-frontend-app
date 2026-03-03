@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.location.Location
@@ -13,6 +14,7 @@ import android.location.LocationManager
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import java.net.HttpURLConnection
@@ -31,6 +33,11 @@ class TripLocationService : Service(), LocationListener {
     private var authToken: String? = null
     private var apiBaseUrl: String? = null
     private var tripType: String? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    private val prefs by lazy {
+        getSharedPreferences("TripLocationServicePrefs", Context.MODE_PRIVATE)
+    }
 
     companion object {
         private const val CHANNEL_ID = "trip_location_channel"
@@ -49,17 +56,36 @@ class TripLocationService : Service(), LocationListener {
     override fun onCreate() {
         super.onCreate()
         locationManager = getSystemService(LOCATION_SERVICE) as? LocationManager
+        // Keep CPU awake so location updates are not cut off in the background
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock = pm.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "TripLocationService::WakeLock"
+        ).also { it.acquire(12 * 60 * 60 * 1000L) } // max 12 hours
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent == null) {
-            stopSelf()
-            return START_NOT_STICKY
+        // If intent is NOT null → fresh start, save params to SharedPreferences
+        if (intent != null) {
+            val tid = intent.getStringExtra(EXTRA_TRIP_ID)
+            val token = intent.getStringExtra(EXTRA_AUTH_TOKEN)
+            val base = intent.getStringExtra(EXTRA_API_BASE_URL)?.trimEnd('/')
+            val type = intent.getStringExtra(EXTRA_TRIP_TYPE) ?: TRIP_TYPE_CATTLE
+            if (!tid.isNullOrBlank() && !token.isNullOrBlank() && !base.isNullOrBlank()) {
+                prefs.edit()
+                    .putString(EXTRA_TRIP_ID, tid)
+                    .putString(EXTRA_AUTH_TOKEN, token)
+                    .putString(EXTRA_API_BASE_URL, base)
+                    .putString(EXTRA_TRIP_TYPE, type)
+                    .apply()
+                Log.d(TAG, "Saved trip params to prefs: tripId=$tid type=$type")
+            }
         }
-        tripId = intent.getStringExtra(EXTRA_TRIP_ID)
-        authToken = intent.getStringExtra(EXTRA_AUTH_TOKEN)
-        apiBaseUrl = intent.getStringExtra(EXTRA_API_BASE_URL)?.trimEnd('/')
-        tripType = intent.getStringExtra(EXTRA_TRIP_TYPE) ?: TRIP_TYPE_CATTLE
+        // Load trip data from SharedPreferences (works for both fresh starts AND Android-restart with null intent)
+        tripId = prefs.getString(EXTRA_TRIP_ID, null)
+        authToken = prefs.getString(EXTRA_AUTH_TOKEN, null)
+        apiBaseUrl = prefs.getString(EXTRA_API_BASE_URL, null)
+        tripType = prefs.getString(EXTRA_TRIP_TYPE, TRIP_TYPE_CATTLE)
 
         if (tripId.isNullOrBlank() || authToken.isNullOrBlank() || apiBaseUrl.isNullOrBlank()) {
             Log.w(TAG, "Missing tripId, token or apiBaseUrl - stopping service")
@@ -83,6 +109,9 @@ class TripLocationService : Service(), LocationListener {
 
     override fun onDestroy() {
         stopLocationUpdates()
+        try {
+            if (wakeLock?.isHeld == true) wakeLock?.release()
+        } catch (_: Exception) {}
         super.onDestroy()
     }
 
@@ -160,6 +189,7 @@ class TripLocationService : Service(), LocationListener {
 
     private fun sendLocationToBackend(baseUrl: String, type: String, tripId: String, token: String, lat: Double, lng: Double) {
         Thread {
+            var isOffline = false
             try {
                 val path = if (type == TRIP_TYPE_MILK) "milk-truck" else "cattle-feed-truck"
                 val url = URL("$baseUrl/$path/trips/$tripId/location")
@@ -180,11 +210,74 @@ class TripLocationService : Service(), LocationListener {
                 val code = conn.responseCode
                 if (code !in 200..299) {
                     Log.w(TAG, "Location POST failed: $code")
+                    isOffline = true // Not success, likely server / proxy error
                 }
                 conn.disconnect()
             } catch (e: Exception) {
-                Log.w(TAG, "sendLocationToBackend error", e)
+                Log.w(TAG, "sendLocationToBackend error, caching locally instead", e)
+                isOffline = true // Network offline / failed to connect
+            }
+
+            if (isOffline) {
+                // Save point locally to native queue
+                val queueKey = "offline_loc_queue_$tripId"
+                val qPrefs = getSharedPreferences("TripLocationQueue", Context.MODE_PRIVATE)
+                val existing = qPrefs.getString(queueKey, "[]")
+                try {
+                    val arr = org.json.JSONArray(existing)
+                    val point = JSONObject().apply {
+                        put("latitude", lat)
+                        put("longitude", lng)
+                        put("timestamp", java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US).apply {
+                            timeZone = java.util.TimeZone.getTimeZone("UTC")
+                        }.format(java.util.Date()))
+                    }
+                    arr.put(point)
+                    qPrefs.edit().putString(queueKey, arr.toString()).apply()
+                    Log.d(TAG, "Added point to native offline queue -> array size: " + arr.length())
+                } catch(e2: Exception) {}
+            } else {
+                // Network is ONLINE and working! Try to flush any natively queued points.
+                flushNativeQueueInBackground(baseUrl, type, tripId, token)
             }
         }.start()
+    }
+
+    private fun flushNativeQueueInBackground(baseUrl: String, type: String, tripId: String, token: String) {
+        val queueKey = "offline_loc_queue_$tripId"
+        val qPrefs = getSharedPreferences("TripLocationQueue", Context.MODE_PRIVATE)
+        val existing = qPrefs.getString(queueKey, "[]")
+        if (existing == null || existing == "[]") return
+
+        try {
+            val arr = org.json.JSONArray(existing)
+            if (arr.length() == 0) return
+
+            val path = if (type == TRIP_TYPE_MILK) "milk-truck" else "cattle-feed-truck"
+            val url = URL("$baseUrl/$path/trips/$tripId/location/batch")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("Authorization", "Bearer $token")
+            conn.doOutput = true
+            conn.connectTimeout = 15_000
+            conn.readTimeout = 15_000
+
+            val body = JSONObject().apply {
+                put("points", arr)
+            }.toString()
+
+            conn.outputStream.use { os: OutputStream ->
+                os.write(body.toByteArray(Charsets.UTF_8))
+            }
+
+            if (conn.responseCode in 200..299) {
+                Log.d(TAG, "Successfully flushed ${arr.length()} cached points from native background queue!")
+                qPrefs.edit().remove(queueKey).apply() // Clear queue on success
+            }
+            conn.disconnect()
+        } catch (e: Exception) {
+            Log.w(TAG, "Native background flush failed", e)
+        }
     }
 }

@@ -14,7 +14,8 @@ import Modal from '../../../components/common/Modal';
 import { useTripSocket } from '../../../hooks/useTripSocket';
 import DriverPathMap, { Coord } from '../../../components/DriverPathMap';
 import { checkGeofenceAndNotify, clearNotifyOwnerThrottle, CollectionPoint } from '../../../utils/notifyOwner';
-import { startBackgroundLocation, stopBackgroundLocation } from '../../../utils/backgroundLocation';
+import { startTripLocationService, stopTripLocationService } from '../../../utils/tripLocationService';
+import { smartSendLocation, startOfflineSyncLoop, stopOfflineSyncLoop } from '../../../utils/offlineLocationCache';
 import { colors } from '../../../theme/colors';
 import { spacing, borderRadius, shadows } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
@@ -84,10 +85,12 @@ const CattleFeedTruckDriverActiveTrip: React.FC = () => {
 
     const tripId = trip._id;
     const watchId = Geolocation.watchPosition(
-      (position) => {
+      async (position) => {
         const { latitude, longitude } = position.coords;
         setPathCoordinates((prev) => [...prev, { latitude, longitude }]);
         emitLocation(latitude, longitude);
+        const tok = await AsyncStorage.getItem('token');
+        if (tok) smartSendLocation(tripId, latitude, longitude, tok, 'cattle_feed_truck').catch(() => { });
         const driverName = trip.driverId?.name || user?.name || 'Driver';
         checkGeofenceAndNotify(tripId, driverName, latitude, longitude, collectionPointsRef.current);
       },
@@ -109,17 +112,66 @@ const CattleFeedTruckDriverActiveTrip: React.FC = () => {
     };
   }, [isOnTrip, trip?._id]);
 
-  // Background location service – keeps sending location when app closed or screen off
+  // Native Android Foreground Service – keeps sending location to backend even when app is closed/killed
   useEffect(() => {
     if (!isOnTrip || !trip?._id) {
-      stopBackgroundLocation();
+      stopTripLocationService();
       return;
     }
 
-    startBackgroundLocation(trip._id, 'cattle_feed_truck');
+    const tripId = trip._id;
+    let mounted = true;
+
+    const startNativeService = async () => {
+      // Request background location permission (Android 10+)
+      if (Platform.OS === 'android') {
+        try {
+          if (Number(Platform.Version) >= 33) {
+            await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+          }
+          const fineGranted = await PermissionsAndroid.request(
+            PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+            {
+              title: 'Location Permission',
+              message: 'Allow location so your trip route can be tracked.',
+              buttonNeutral: 'Later',
+              buttonPositive: 'OK',
+            }
+          );
+          if (fineGranted !== PermissionsAndroid.RESULTS.GRANTED) return;
+          // ACCESS_BACKGROUND_LOCATION is required for location when app is closed (Android 10+)
+          if (Number(Platform.Version) >= 29) {
+            await PermissionsAndroid.request(
+              PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION,
+              {
+                title: 'Background Location',
+                message: 'Allow background location so the trip route is recorded even when the app is closed.',
+                buttonNeutral: 'Later',
+                buttonPositive: 'OK',
+              }
+            );
+          }
+        } catch (_) { }
+      }
+
+      if (!mounted) return;
+      try {
+        const token = await AsyncStorage.getItem('token');
+        if (token && mounted) {
+          startTripLocationService(tripId, token, 'cattle_feed_truck');
+          startOfflineSyncLoop(tripId, token, 'cattle_feed_truck');
+        }
+      } catch (e) {
+        console.warn('[CattleFeed] Failed to start native location service:', e);
+      }
+    };
+
+    startNativeService();
 
     return () => {
-      stopBackgroundLocation();
+      mounted = false;
+      stopTripLocationService();
+      stopOfflineSyncLoop();
     };
   }, [isOnTrip, trip?._id]);
 

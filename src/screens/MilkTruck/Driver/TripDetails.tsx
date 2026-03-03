@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Animated, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Animated, TouchableOpacity, Dimensions, Image as RNImage, Modal } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import { getMilkTruckTrip, getMilkTruckBMCs, getMilkTruckVehicles, getMilkTruckDrivers, getMilkTruckRoutes } from '../../../utils/storage';
@@ -7,8 +7,28 @@ import Card from '../../../components/common/Card';
 import { colors } from '../../../theme/colors';
 import { spacing, borderRadius, shadows } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
+import { getImageUrl } from '../../../utils/api';
 
 const { width } = Dimensions.get('window');
+
+// ─── Fullscreen Image Viewer ──────────────────────────────────────────────────
+const ImageModal = ({ uri, visible, onClose }: { uri: string; visible: boolean; onClose: () => void }) => (
+  <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <TouchableOpacity style={imgModalS.bg} activeOpacity={1} onPress={onClose}>
+      <RNImage source={{ uri }} style={imgModalS.img} resizeMode="contain" />
+      <TouchableOpacity style={imgModalS.closeBtn} onPress={onClose}>
+        <Text style={imgModalS.closeTxt}>✕ Close</Text>
+      </TouchableOpacity>
+    </TouchableOpacity>
+  </Modal>
+);
+
+const imgModalS = StyleSheet.create({
+  bg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center' },
+  img: { width: '90%', height: '70%', borderRadius: 10 },
+  closeBtn: { marginTop: 20, paddingHorizontal: 28, paddingVertical: 10, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 20 },
+  closeTxt: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
+});
 
 const TripDetails: React.FC = () => {
   const route = useRoute<any>();
@@ -20,6 +40,7 @@ const TripDetails: React.FC = () => {
   const [bmcs, setBMCs] = useState<any[]>([]);
   const [drivers, setDrivers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [viewImg, setViewImg] = useState<string | null>(null);
 
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -193,6 +214,8 @@ const TripDetails: React.FC = () => {
               const entryQty = entry.collectionData?.milkQuantity || 0;
               const entryDairyQty = entry.dairyVerifiedData?.milkQuantity || 0;
               const entryVariance = entryDairyQty - entryQty;
+              const collectionImgUrl = entry.collectionData?.image ? getImageUrl(entry.collectionData.image) : null;
+              const dairyImgUrl = entry.dairyVerifiedData?.image ? getImageUrl(entry.dairyVerifiedData.image) : null;
 
               return (
                 <Card key={index} variant="elevated" style={styles.bmcCard}>
@@ -219,6 +242,24 @@ const TripDetails: React.FC = () => {
                       </Text>
                     </View>
                   </View>
+
+                  {/* BMC Images Row */}
+                  {(collectionImgUrl || dairyImgUrl) && (
+                    <View style={styles.imgRow}>
+                      {collectionImgUrl && (
+                        <TouchableOpacity onPress={() => setViewImg(collectionImgUrl)} style={styles.imgThumbWrap}>
+                          <RNImage source={{ uri: collectionImgUrl }} style={styles.imgThumb} resizeMode="cover" />
+                          <Text style={styles.imgThumbLabel}>Collection Slip</Text>
+                        </TouchableOpacity>
+                      )}
+                      {dairyImgUrl && (
+                        <TouchableOpacity onPress={() => setViewImg(dairyImgUrl)} style={styles.imgThumbWrap}>
+                          <RNImage source={{ uri: dairyImgUrl }} style={styles.imgThumb} resizeMode="cover" />
+                          <Text style={styles.imgThumbLabel}>Dairy Verified</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  )}
                 </Card>
               );
             })}
@@ -227,6 +268,9 @@ const TripDetails: React.FC = () => {
 
         <View style={styles.footerPadding} />
       </Animated.ScrollView>
+
+      {/* Full screen image viewer */}
+      <ImageModal uri={viewImg || ''} visible={!!viewImg} onClose={() => setViewImg(null)} />
     </View>
   );
 };
@@ -448,6 +492,31 @@ const styles = StyleSheet.create({
   },
   footerPadding: {
     height: 100,
+  },
+  imgRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.05)',
+  },
+  imgThumbWrap: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 4,
+  },
+  imgThumb: {
+    width: '100%',
+    height: 70,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+  },
+  imgThumbLabel: {
+    fontSize: 9,
+    color: colors.text.tertiary,
+    fontWeight: '700',
+    textAlign: 'center',
   },
 });
 

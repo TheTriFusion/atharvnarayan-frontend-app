@@ -7,6 +7,7 @@ import Card from '../../../components/common/Card';
 import Input from '../../../components/common/Input';
 import ScreenHeader from '../../../components/common/ScreenHeader';
 import DriverPathMap, { Coord } from '../../../components/DriverPathMap';
+import TripReplayPlayer from '../../../components/Map/TripReplayPlayer';
 import { BASE_URL } from '../../../config/api';
 import { getImageUrl } from '../../../utils/api';
 import { calculateTotalDistance } from '../../../utils/distance';
@@ -220,26 +221,34 @@ const OwnerTripDetails: React.FC = () => {
                             </View>
 
                             {(trip.locationHistory && trip.locationHistory.length >= 2) ? (
-                                <TouchableOpacity
-                                    style={styles.viewMapButton}
-                                    activeOpacity={0.8}
-                                    onPress={() => navigation.navigate('MilkTruckOwnerTripMap', {
-                                        locationHistory: trip.locationHistory,
-                                        routeName: tripRoute?.name,
-                                        vehicleReg: vehicle?.registrationNumber,
-                                        tripId: trip._id || trip.id
-                                    })}
-                                >
-                                    <LinearGradient
-                                        colors={[colors.primary[600], colors.primary[700]]}
-                                        style={styles.viewMapGradient}
-                                        start={{ x: 0, y: 0 }}
-                                        end={{ x: 1, y: 0 }}
+                                <View>
+                                    <TripReplayPlayer
+                                        locationHistory={trip.locationHistory || []}
+                                        driverName={trip.driverId?.name || 'Driver'}
+                                        startTime={trip.startTime}
+                                        endTime={trip.endTime}
+                                    />
+                                    <TouchableOpacity
+                                        style={styles.viewMapButton}
+                                        activeOpacity={0.8}
+                                        onPress={() => navigation.navigate('MilkTruckOwnerTripMap', {
+                                            locationHistory: trip.locationHistory,
+                                            routeName: tripRoute?.name,
+                                            vehicleReg: vehicle?.registrationNumber,
+                                            tripId: trip._id || trip.id
+                                        })}
                                     >
-                                        <Text style={styles.viewMapText}>View Full Trip Path</Text>
-                                        <Text style={styles.viewMapIcon}>🗺️</Text>
-                                    </LinearGradient>
-                                </TouchableOpacity>
+                                        <LinearGradient
+                                            colors={[colors.primary[600], colors.primary[700]]}
+                                            style={styles.viewMapGradient}
+                                            start={{ x: 0, y: 0 }}
+                                            end={{ x: 1, y: 0 }}
+                                        >
+                                            <Text style={styles.viewMapText}>View Full Screen Map</Text>
+                                            <Text style={styles.viewMapIcon}>🗺️</Text>
+                                        </LinearGradient>
+                                    </TouchableOpacity>
+                                </View>
                             ) : (
                                 <View style={styles.noPathContainer}>
                                     <Text style={styles.noPathText}>No path recorded for this trip.</Text>
@@ -537,6 +546,58 @@ const OwnerTripDetails: React.FC = () => {
                                 <Text style={styles.btnText}>Authorize & Finalize Payment</Text>
                             </LinearGradient>
                         </TouchableOpacity>
+                        {/* ── TRIP PHOTO GALLERY ── */}
+                        {(() => {
+                            const allPhotos: { label: string; url: string }[] = [];
+                            bmcEntries.forEach((entry: any, i: number) => {
+                                const bmcId = entry.bmcId?._id || entry.bmcId;
+                                const name = entry.bmcId?.name || bmcs.find((b: any) => (b._id || b.id) === bmcId)?.name || `BMC ${i + 1}`;
+                                if (entry.collectionData?.image)
+                                    allPhotos.push({ label: `${name}\nCollection`, url: getImageUrl(entry.collectionData.image) || '' });
+                                if (entry.dairyVerifiedData?.image)
+                                    allPhotos.push({ label: `${name}\nDairy Verify`, url: getImageUrl(entry.dairyVerifiedData.image) || '' });
+                            });
+                            if (allPhotos.length === 0) return null;
+                            return (
+                                <>
+                                    <View style={styles.sectionHeader}>
+                                        <Text style={styles.sectionTitle}>Trip Photos</Text>
+                                        <View style={[styles.sectionIcon, { backgroundColor: '#FDE68A' }]}>
+                                            <Text style={styles.siText}>📸</Text>
+                                        </View>
+                                    </View>
+                                    <ScrollView
+                                        horizontal
+                                        showsHorizontalScrollIndicator={false}
+                                        style={{ marginBottom: spacing.xl }}
+                                        contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: spacing.md }}
+                                    >
+                                        {allPhotos.map((photo, idx) => (
+                                            <TouchableOpacity
+                                                key={idx}
+                                                onPress={() => {
+                                                    setSelectedEntryImage(photo.url);
+                                                    setIsImageModalVisible(true);
+                                                }}
+                                                activeOpacity={0.85}
+                                                style={styles.galleryItem}
+                                            >
+                                                <RNImage
+                                                    source={{ uri: photo.url }}
+                                                    style={styles.galleryThumb}
+                                                    resizeMode="cover"
+                                                />
+                                                <View style={styles.galleryOverlay}>
+                                                    <Text style={styles.galleryLabel} numberOfLines={2}>{photo.label}</Text>
+                                                    <Text style={styles.galleryZoom}>🔍</Text>
+                                                </View>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </ScrollView>
+                                </>
+                            );
+                        })()}
+
                     </Animated.View>
                 </ScrollView>
             </KeyboardAvoidingView>
@@ -1113,7 +1174,44 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         fontSize: 12,
         letterSpacing: 1,
-    }
+    },
+    // Gallery
+    galleryItem: {
+        width: 130,
+        height: 110,
+        borderRadius: 12,
+        overflow: 'hidden',
+        backgroundColor: '#F3F4F6',
+        borderWidth: 1,
+        borderColor: 'rgba(0,0,0,0.07)',
+    },
+    galleryThumb: {
+        width: '100%',
+        height: '100%',
+    },
+    galleryOverlay: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: 'rgba(0,0,0,0.55)',
+        paddingHorizontal: 6,
+        paddingVertical: 4,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    galleryLabel: {
+        flex: 1,
+        fontSize: 9,
+        color: '#FFFFFF',
+        fontWeight: '600',
+        lineHeight: 12,
+    },
+    galleryZoom: {
+        fontSize: 12,
+        marginLeft: 4,
+    },
 });
 
 export default OwnerTripDetails;

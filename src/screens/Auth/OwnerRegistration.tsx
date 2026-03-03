@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated, StatusBar, Platform, KeyboardAvoidingView, Alert, Image as RNImage } from 'react-native';
-import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
+import { launchImageLibrary } from 'react-native-image-picker';
 import DocumentPicker from 'react-native-document-picker';
 import { useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
+import { safeLaunchCamera } from '../../utils/imagePicker';
 import Input from '../../components/common/Input';
 import Button from '../../components/common/Button';
 import Card from '../../components/common/Card';
@@ -127,7 +128,7 @@ const OwnerRegistration: React.FC = () => {
         {
           text: 'Camera',
           onPress: () => {
-            launchCamera({ mediaType: 'photo', quality: 0.7 }, (response) => {
+            safeLaunchCamera({ mediaType: 'photo', quality: 0.7 }, (response) => {
               if (response.assets && response.assets.length > 0) {
                 const img = response.assets[0];
                 if (type === 'profile') setProfileImage(img);

@@ -12,6 +12,7 @@ import {
     addMilkTruckTrip
 } from '../../../utils/storage';
 import { startTripLocationService, stopTripLocationService } from '../../../utils/tripLocationService';
+import { smartSendLocation, startOfflineSyncLoop, stopOfflineSyncLoop } from '../../../utils/offlineLocationCache';
 import { useTripSocket } from '../../../hooks/useTripSocket';
 import ScreenHeader from '../../../components/common/ScreenHeader';
 import { colors } from '../../../theme/colors';
@@ -139,12 +140,14 @@ const TripPage: React.FC = () => {
                 } catch (_) { }
             }
 
-            // --- Send first location immediately ---
+            // --- Send first location immediately (with offline fallback) ---
+            const token = await AsyncStorage.getItem('token');
             Geolocation.getCurrentPosition(
-                (pos) => {
+                async (pos) => {
                     if (!mounted) return;
                     const { latitude, longitude } = pos.coords;
-                    milkTruckAPI.sendTripLocation(tripId, latitude, longitude).catch(() => { });
+                    // Send to server — caches offline if network is down
+                    if (token) await smartSendLocation(tripId, latitude, longitude, token, 'milk_truck');
                     emitLocationRef.current(latitude, longitude, user?.id || user?._id);
                 },
                 () => { },
@@ -153,9 +156,10 @@ const TripPage: React.FC = () => {
 
             // --- Start native Android foreground service (reliable in background / screen off) ---
             try {
-                const token = await AsyncStorage.getItem('token');
                 if (token) {
                     startTripLocationService(tripId, token, 'milk_truck');
+                    // Start sync loop — retries cached points every 15 s
+                    startOfflineSyncLoop(tripId, token, 'milk_truck');
                 }
             } catch (e) {
                 console.warn('Failed to start native location service:', e);
@@ -163,11 +167,14 @@ const TripPage: React.FC = () => {
 
             // --- Start JS watchPosition for real-time Socket.io updates to owner ---
             const watchId = Geolocation.watchPosition(
-                (position) => {
+                async (position) => {
                     if (!mounted) return;
                     const { latitude, longitude } = position.coords;
                     // Emit via socket so owner sees live movement on FleetMap
                     emitLocationRef.current(latitude, longitude, user?.id || user?._id);
+                    // Also persist to server (with offline cache fallback)
+                    const tok = await AsyncStorage.getItem('token');
+                    if (tok) smartSendLocation(tripId, latitude, longitude, tok, 'milk_truck').catch(() => { });
                 },
                 (err) => console.warn('Trip location watch error:', err),
                 {
@@ -185,6 +192,7 @@ const TripPage: React.FC = () => {
         return () => {
             mounted = false;
             stopTripLocationService();
+            stopOfflineSyncLoop(); // stop retry loop when trip ends or unmounts
             if (watchIdRef.current != null) {
                 Geolocation.clearWatch(watchIdRef.current);
                 watchIdRef.current = null;

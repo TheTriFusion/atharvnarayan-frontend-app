@@ -8,9 +8,10 @@ import { colors } from '../../../theme/colors';
 import { spacing, borderRadius, shadows } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
 import { addBMCCollectionEntry, getMilkTruckTrip } from '../../../utils/storage';
-import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
+import { launchImageLibrary } from 'react-native-image-picker';
 import Icon from 'react-native-vector-icons/Feather';
 import { getImageUrl } from '../../../utils/api';
+import { safeLaunchCamera } from '../../../utils/imagePicker';
 
 interface BMCCollectionProps {
     trip: any;
@@ -116,7 +117,7 @@ const BMCCollection: React.FC<BMCCollectionProps> = ({ trip, route, onComplete }
                 {
                     text: 'Camera',
                     onPress: () => {
-                        launchCamera({ mediaType: 'photo', quality: 0.7 }, (response) => {
+                        safeLaunchCamera({ mediaType: 'photo', quality: 0.7 }, (response) => {
                             if (response.assets && response.assets.length > 0) {
                                 setSelectedImage(response.assets[0]);
                             }

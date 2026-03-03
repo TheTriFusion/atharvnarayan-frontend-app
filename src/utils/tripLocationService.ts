@@ -34,3 +34,17 @@ export function stopTripLocationService(): void {
     console.warn('stopTripLocationService error', e);
   }
 }
+
+/**
+ * Retrieves and clears the locally cached GPS points from the native foreground service (Android only)
+ * so they can be synced to the backend by the JS background loop.
+ */
+export async function syncNativeOfflineQueue(tripId: string): Promise<string> {
+  if (Platform.OS !== 'android' || !TripLocationModule) return '[]';
+  try {
+    return await TripLocationModule.syncNativeOfflineQueue(tripId);
+  } catch (e) {
+    console.warn('syncNativeOfflineQueue error', e);
+    return '[]';
+  }
+}

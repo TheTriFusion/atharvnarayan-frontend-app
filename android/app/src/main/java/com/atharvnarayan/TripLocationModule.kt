@@ -27,7 +27,30 @@ class TripLocationModule(reactContext: ReactApplicationContext) : ReactContextBa
 
     @ReactMethod
     fun stopTripLocationService() {
+        // Clear stored prefs so if Android tries to restart the service,
+        // it won't have stale tripId / token and will exit cleanly
+        reactApplicationContext
+            .getSharedPreferences("TripLocationServicePrefs", android.content.Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .apply()
         val intent = Intent(reactApplicationContext, TripLocationService::class.java)
         reactApplicationContext.stopService(intent)
+    }
+
+    @ReactMethod
+    fun syncNativeOfflineQueue(tripId: String, promise: com.facebook.react.bridge.Promise) {
+        try {
+            val qPrefs = reactApplicationContext.getSharedPreferences("TripLocationQueue", android.content.Context.MODE_PRIVATE)
+            val queueKey = "offline_loc_queue_$tripId"
+            val existing = qPrefs.getString(queueKey, "[]")
+            
+            // clear after reading
+            qPrefs.edit().remove(queueKey).apply()
+            
+            promise.resolve(existing)
+        } catch (e: Exception) {
+            promise.reject("SYNC_ERROR", e)
+        }
     }
 }

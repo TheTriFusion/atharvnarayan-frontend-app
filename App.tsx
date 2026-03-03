@@ -7,6 +7,7 @@ import { ToastProvider } from './src/contexts/ToastContext';
 import { OwnerProvider } from './src/contexts/OwnerContext';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import AppNavigator from './src/navigation/AppNavigator';
+import './src/i18n/index';
 
 function App(): React.JSX.Element {
   const isDarkMode = useColorScheme() === 'dark';

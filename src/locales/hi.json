@@ -1,0 +1,16 @@
+{
+    "dashboard": {
+        "welcome": "नमस्ते",
+        "active_trip": "चालू ट्रिप (Active)",
+        "start_trip": "नई ट्रिप शुरू करें",
+        "recent_trips": "पिछली ट्रिप्स",
+        "logout": "लॉग आउट करें",
+        "view_details": "विवरण देखें"
+    },
+    "driver": {
+        "deliveries_completed": "डिलीवरी पूरी हुई",
+        "total_bags": "कुल बैग दिए",
+        "mark_delivered": "डिलीवर मार्क करें",
+        "change_language": "भाषा बदलें"
+    }
+}
